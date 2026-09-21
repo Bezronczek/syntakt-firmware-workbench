@@ -1,0 +1,27 @@
+# Whitelist: ignore everything, then allow exactly what is meant to be public.
+# Firmware, anything extracted from it, backups and third-party tools must never be committed.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/.github/
+!/test-waves/
+!/web/
+!/tools/
+
+# tools/: only device-agnostic helpers for users. Research and test scripts stay private.
+/tools/*
+!/tools/din_loopback_test.py
+
+# web/: no mockups, no internal specs
+/web/mockup*.html
+/web/SPEC*.md
+
+# belt and braces: never, anywhere
+*.syx
+*.zip
+*.raw
+*.bin
+*.asm
+*.npz
+__pycache__/

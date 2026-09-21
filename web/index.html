@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syntakt Firmware Workbench</title>
+<meta name="description" content="Open, unofficial tools that build modified Elektron Syntakt OS images in your browser, from your own firmware file. Load one file, queue changes, build once.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="page-head">
+  <h1>Syntakt Firmware Workbench</h1>
+  <p class="lede">
+    Change how your Syntakt sounds, in three steps: load your firmware file, make your changes, build
+    a new file. Everything happens in this browser tab. Nothing is uploaded, and this site cannot talk
+    to your instrument.
+  </p>
+  <p class="lede small"><strong>Unofficial. Not affiliated with, endorsed by or supported by Elektron.</strong></p>
+</header>
+
+<section class="safety" aria-labelledby="safety-head">
+  <h2 id="safety-head">Before you flash anything</h2>
+  <ul>
+    <li><strong>Make sure you can put the official firmware back.</strong> Try it once, before you need it.</li>
+    <li>Flashing modified firmware can leave your instrument unusable. It voids your warranty.</li>
+    <li>Back up your projects with Elektron Transfer first.</li>
+    <li>This site sends nothing anywhere and never touches your instrument.</li>
+  </ul>
+  <details>
+    <summary>Read more</summary>
+    <p>
+      The way back: hold <kbd>FUNC</kbd> while powering the Syntakt on to reach the Early Startup Menu,
+      choose <em>OS UPGRADE</em>, and send the official <code>.syx</code> over a <strong>MIDI DIN cable
+      with a real MIDI interface</strong> (USB does not do this). Confirm you own that cable and
+      interface, and keep the official file on your disk, before you flash anything from this site.
+    </p>
+    <p>
+      The authors used that recovery path themselves, over MIDI DIN, on OS 1.41, on one unit. That is
+      not a guarantee for yours. Verify it on your own instrument first.
+    </p>
+    <p>
+      There is no server here, no upload, no analytics and no external request of any kind. The site
+      reads the file you choose and writes a new file to your download folder. Flashing is a separate
+      step that you do yourself, with Elektron's own tools. You do all of this at your own risk.
+    </p>
+  </details>
+</section>
+
+<main>
+
+<!-- ============================ the workbench ============================ -->
+<div id="view-workbench">
+
+  <!-- 1 ------------------------------------------------------------------->
+  <section class="step" id="step-image" aria-labelledby="image-head">
+    <h2 id="image-head" tabindex="-1"><span class="step-num">1</span> Load your firmware file</h2>
+    <p class="lead-line" id="step1-lead">Drop your Syntakt firmware file here.</p>
+
+    <p class="restore" id="restore-line" hidden></p>
+
+    <div class="drop" id="image-drop">
+      <p class="dim small">The official <code>Syntakt_OS1.41.syx</code>, or an image you built here.</p>
+      <button type="button" class="btn btn-primary" id="image-pick">Choose file</button>
+      <input type="file" id="image-input" accept=".syx,.SYX" multiple class="visually-hidden">
+    </div>
+    <p class="status" id="image-status" role="status" aria-live="polite"></p>
+
+    <div id="image-card" hidden></div>
+    <div id="image-problem"></div>
+
+    <div class="advice" id="stock-advice" hidden>
+      <p id="stock-advice-text"></p>
+      <div class="drop drop-small" id="stock-drop">
+        <p class="dim small">Drop <code>Syntakt_OS1.41.syx</code> here.</p>
+        <button type="button" class="btn btn-small" id="stock-pick">Add the official file</button>
+        <input type="file" id="stock-input" accept=".syx,.SYX" class="visually-hidden">
+      </div>
+      <p class="status" id="stock-status" role="status" aria-live="polite"></p>
+      <div id="stock-card" hidden></div>
+    </div>
+
+    <p class="hint small" id="storage-line">
+      Your file and your changes stay in this browser, so a reload does not lose them. Press
+      <strong>Forget my files</strong> to erase them.
+    </p>
+  </section>
+
+  <!-- 2 ------------------------------------------------------------------->
+  <section class="step" id="step-tools" aria-labelledby="tools-head">
+    <h2 id="tools-head"><span class="step-num">2</span> Make your changes</h2>
+    <p class="lead-line">Open a tool and make your changes there.</p>
+    <p class="hint small">Nothing is written to a file until you build in step 3.</p>
+    <ul class="mod-grid" id="tool-list">
+      <li class="empty">Loading the tools ...</li>
+    </ul>
+    <noscript>
+      <p class="hint">
+        This site needs JavaScript, because all the work happens in your browser. Switch it on and
+        reload.
+      </p>
+    </noscript>
+  </section>
+
+  <!-- 3 ------------------------------------------------------------------->
+  <section class="step" id="step-build" aria-labelledby="build-head">
+    <h2 id="build-head"><span class="step-num">3</span> Build and download</h2>
+    <p class="lead-line">Build your new firmware file.</p>
+
+    <div id="queue"></div>
+
+    <p class="build-row">
+      <button type="button" class="btn btn-primary" id="build" disabled>Build</button>
+      <span class="dim small" id="build-note">Load a firmware file first.</span>
+    </p>
+    <p class="status" id="build-status" role="status" aria-live="polite"></p>
+
+    <details class="checks" id="check-details" hidden>
+      <summary id="check-summary">Details: what was checked</summary>
+      <ul class="checklist" id="checklist"></ul>
+    </details>
+
+    <div class="download-row" id="download-row" hidden>
+      <p class="warn-line">
+        <strong>Can you put the official firmware back over MIDI DIN?</strong>
+        If you are not sure, do not flash this file.
+      </p>
+      <a class="btn btn-primary" id="download" download>Download your firmware file</a>
+    </div>
+
+    <div class="after" id="after" hidden>
+      <h3>What this file contains</h3>
+      <p id="contains"></p>
+      <h3>How to flash it</h3>
+      <ol class="steps-list">
+        <li>Back up your projects with Elektron Transfer.</li>
+        <li>Connect the Syntakt to your computer with a USB cable.</li>
+        <li>Open Elektron Transfer.</li>
+        <li>Drag the file you downloaded onto the Transfer window.</li>
+        <li>Wait. The Syntakt restarts by itself. Do not switch it off before that.</li>
+        <li>If it does not start: hold <kbd>FUNC</kbd> while powering on, choose <em>OS UPGRADE</em>,
+            and send the official file over MIDI DIN.</li>
+      </ol>
+      <h3>What changes in your sounds</h3>
+      <p>
+        Sounds that use a WAVE value you changed will sound different, including in old projects.
+        Values next to it change a little too, because WAVE morphs between neighbours. Your projects
+        themselves are untouched: flashing the official file back restores the original sound exactly.
+      </p>
+    </div>
+  </section>
+
+  <!-- reference sections --------------------------------------------------->
+  <section class="step" aria-labelledby="combine-head">
+    <h2 id="combine-head">Using more than one tool</h2>
+    <p class="hint">
+      Load your file once, change what you like in as many tools as you like, build once. Tools that
+      touch different parts of the firmware can be combined; a tool that would overwrite another one is
+      blocked before you start.
+    </p>
+    <p class="hint">
+      To add something to a file you built here earlier, just load that file in step 1. The site knows
+      its own work. Adding the official file next to it is recommended: only then can a tool show you
+      what is already changed and put the original sounds back.
+    </p>
+    <details>
+      <summary>Details: how that is decided</summary>
+      <p class="hint">
+        Every tool declares, up front, the exact byte ranges it may write. Two tools can be combined
+        when those ranges do not touch; when they overlap the site refuses instead of guessing. No tool
+        changes the size of a firmware section, so every offset stays where it was. This is the weakest
+        useful guarantee, deliberately: disjoint bytes mean the tools cannot corrupt each other, not
+        that they make musical sense together. That part is your judgement.
+      </p>
+      <p class="hint">
+        An image is recognised without the official file because the site stores SHA-256 fingerprints
+        of the official firmware, never the firmware itself. Anything it cannot account for - another
+        tool's work, a recompressed image, a damaged download - is refused, with the sections listed.
+      </p>
+    </details>
+  </section>
+
+  <section class="step" aria-labelledby="fw-head">
+    <h2 id="fw-head">Supported firmware</h2>
+    <p class="hint">
+      <strong>Syntakt OS 1.41 only.</strong> Every tool here writes at places that were found by reading
+      that exact version. Another version is built differently, so a file that is not OS 1.41 is refused
+      instead of patched blindly.
+    </p>
+    <p class="hint small">
+      You supply the file. This site contains no Elektron firmware and no factory sounds: everything you
+      see in a tool is read from the file on your own disk.
+    </p>
+  </section>
+
+</div>
+
+<!-- ============================ one tool view ============================ -->
+<div id="view-tool" hidden>
+  <p class="crumb"><a href="#/" id="tool-back">Back to the workbench</a></p>
+  <section class="step">
+    <h2 id="tool-title" tabindex="-1">Tool</h2>
+    <p class="hint small" id="tool-image"></p>
+    <div id="tool-body"></div>
+    <p class="build-row tool-done-row">
+      <button type="button" class="btn" id="tool-done">Done</button>
+      <span class="dim small">Your changes are saved as you make them. Build them in step 3.</span>
+    </p>
+  </section>
+</div>
+
+</main>
+
+<footer class="page-foot">
+  <p>
+    Unofficial, not affiliated with Elektron. Elektron, Syntakt and Elektron Transfer are
+    trademarks of their owner.
+  </p>
+  <p>
+    Prior art this builds on: <strong>mischa85 / elektron-firmware-tool</strong> for the Elektron
+    firmware container format, and the <strong>digikit</strong> and
+    <strong>dn2_firmware_explore</strong> projects for showing that a browser-only,
+    bring-your-own-firmware editor is the right shape for this.
+  </p>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
