@@ -2,25 +2,30 @@
 //
 // The tool owns nothing but its own state:
 //
-//   { ops, defaultHarmonics, allowFrame0, revertToFactory }
+//   { ops, defaultHarmonics, allowFrame0, revertToFactory, drawPictures }
 //   ops[i] = { frame, mode: "replace"|"insert", name, samples: Float64Array, harmonics }
 //
 // which is plain structured-clone-able data, so the workbench can autosave it and hand it back
 // after a reload unchanged. Every byte-level decision still lives in ../bank.js (the operations
-// list, the raw frame copies, building section 7) and ../wave-dsp.js (WAV decoding and cycle
-// conditioning), which is what the Node tests drive.
+// list, the raw frame copies, building section 7), ../wave-dsp.js (WAV decoding and cycle
+// conditioning) and ../wave-picture.js (the pictures the screen draws), which is what the Node
+// tests drive.
 //
 // The tool never builds an image and never offers a download: contribute() hands the workbench
-// its rewritten copy of section 7 and the workbench takes only the bytes inside the mod's
-// declared regions.
+// its rewritten copy of section 7, and - when the pictures are switched on - of the decompressed
+// section 3, and the workbench takes only the bytes inside the mod's declared regions.
 
 import * as fw from "../syntakt-fw.js";
 import * as bank from "../bank.js";
 import { node, say, wireDrop, saveBlob } from "../site.js";
 import { decodeWav, encodeWavFloat32, DEFAULT_HARMONICS, MIN_HARMONICS, MAX_HARMONICS } from "../wave-dsp.js";
+import { picturesForBank } from "../wave-picture.js";
+import { BLOCK_OF_VALUE, OPERANDS, SECTION_BASE } from "../sychord-picture-map.js";
 
 const MOD_ID = "sychord-waves";
 const SECTION = fw.WAVE.SECTION_ID;
+const PICTURE_SECTION = 3;      // MAIN OS, stored compressed: these offsets are into its raw bytes
+const PICTURE_LINE = "Wave pictures on the screen updated to match.";
 
 const pct = (x) => (x > 0 && x < 0.01 ? "<0.01%" : x.toFixed(2) + "%");
 const list = (a) => a.join(", ");
@@ -28,8 +33,11 @@ const list = (a) => a.join(", ");
 // ---- state, DOM free -------------------------------------------------------------------
 
 export function createState() {
-  return { ops: [], defaultHarmonics: DEFAULT_HARMONICS, allowFrame0: false, revertToFactory: false };
+  return { ops: [], defaultHarmonics: DEFAULT_HARMONICS, allowFrame0: false, revertToFactory: false, drawPictures: true };
 }
+
+/** Pictures are on unless the user switched them off, including for a state saved before they existed. */
+const drawsPictures = (state) => !state || state.drawPictures !== false;
 
 /** The operations that actually count: frame 0 only when it is unlocked. */
 function opsOf(state) {
@@ -53,23 +61,59 @@ function describeOp(op) {
     : "Replace " + wave + " with " + op.name + ".";
 }
 
-export function summarise(state, ctx) {
+/** What the user actually asked for. The picture line is a consequence, not a change of its own. */
+function changeLines(state, ctx) {
   const lines = [];
   if (canRevert(state, ctx)) lines.push("Put all waves back to the original ones.");
   for (const op of opsOf(state)) lines.push(describeOp(op));
   return lines;
 }
 
+export function summarise(state, ctx) {
+  const lines = changeLines(state, ctx);
+  if (lines.length && drawsPictures(state)) lines.push(PICTURE_LINE);
+  return lines;
+}
+
+/**
+ * A copy of the decompressed MAIN OS section with the 128 wave pictures redrawn from the
+ * waves this build writes. 125 values own a block; the three that do not get a pointer to
+ * the block of the value next to them, so they show a picture of the right shape too.
+ */
+function pictureSection(ctx, sectionBytes) {
+  const raw = fw.getSectionRaw(ctx.baseParsed, PICTURE_SECTION).slice();
+  const frames = Array.from({ length: bank.FRAME_COUNT }, (_, k) => fw.readFrame(sectionBytes, k));
+  const pictures = picturesForBank(frames);
+  const shared = new Set(OPERANDS.map((o) => o.value));
+  for (let v = 0; v < pictures.length; v++) if (!shared.has(v)) raw.set(pictures[v], BLOCK_OF_VALUE[v]);
+  for (const o of OPERANDS) {
+    const address = SECTION_BASE + BLOCK_OF_VALUE[o.showValue];
+    raw[o.pointer] = (address >>> 24) & 0xff;
+    raw[o.pointer + 1] = (address >>> 16) & 0xff;
+    raw[o.pointer + 2] = (address >>> 8) & 0xff;
+    raw[o.pointer + 3] = address & 0xff;
+  }
+  return raw;
+}
+
 export function contribute(state, ctx) {
-  if (!summarise(state, ctx).length) return [];
+  if (!changeLines(state, ctx).length) return [];
   const base = baseSection(state, ctx);
   const built = bank.buildSection(base, bank.replayOps(opsOf(state)), { allowFrame0: !!state.allowFrame0 });
-  return [{ section: SECTION, bytes: built.section }];
+  const parts = [{ section: SECTION, bytes: built.section }];
+  if (drawsPictures(state)) {
+    parts.push({
+      section: PICTURE_SECTION,
+      bytes: pictureSection(ctx, built.section),
+      note: "Wave pictures on the screen: all 128 redrawn from your waves",
+    });
+  }
+  return parts;
 }
 
 /** Frames this contribution rewrites; shown in the build checklist. */
 export function changedFrames(state, ctx) {
-  if (!summarise(state, ctx).length) return [];
+  if (!changeLines(state, ctx).length) return [];
   return bank.buildSection(baseSection(state, ctx), bank.replayOps(opsOf(state)), { allowFrame0: !!state.allowFrame0 }).changed;
 }
 
@@ -106,6 +150,11 @@ const VIEW = `
       <small>
         WAVE 0 is a sine that other machines share. Changing it changes their sound too. Leave this
         off unless you know you want that.
+      </small>
+      <label><input type="checkbox" data-x="pics" checked> Draw my waves on the Syntakt screen too</label>
+      <small>
+        The little picture in the WAVE cell then shows your own shapes instead of the original ones.
+        Switch it off and only the sound changes.
       </small>
       <div class="buttons">
         <button type="button" class="btn btn-small" data-x="resetAll">Undo all my changes</button>
@@ -360,6 +409,14 @@ export function mount(container, initial, ctx, onChange) {
     commit({ allowFrame0: on, ops: kept });
   });
 
+  el.pics.addEventListener("change", () => {
+    const on = el.pics.checked;
+    commit({ drawPictures: on });
+    say(el.status, on
+      ? "Your waves will be drawn on the Syntakt screen as well."
+      : "The screen keeps the original pictures. Only the sound changes.");
+  });
+
   el.resetAll.addEventListener("click", () => {
     if (!state.ops.length && !state.revertToFactory) { say(el.status, "You have not changed anything yet."); return; }
     askInline("Undo all " + state.ops.length + " of your changes here?",
@@ -558,6 +615,7 @@ export function mount(container, initial, ctx, onChange) {
   el.defharm.value = String(clampHarm(state.defaultHarmonics));
   el.defharmOut.textContent = String(clampHarm(state.defaultHarmonics));
   el.unlock0.checked = !!state.allowFrame0;
+  el.pics.checked = drawsPictures(state);
   const firstOp = opsOf(state)[0];
   ui.sel = firstOp ? firstOp.frame : 1;
   render();

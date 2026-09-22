@@ -4,15 +4,18 @@
 // section. The rules, deliberately the weakest useful guarantee:
 //   * two mods may be combined only if their regions are disjoint;
 //   * an image may differ from the stock file only inside regions of known mods;
-//   * no mod changes the length of a section, so every offset stays put.
+//   * no mod changes the length of a section's CONTENT, so every offset stays put.
 // Disjoint bytes mean the mods cannot corrupt each other. It does NOT mean they make sense
 // together; say so in the UI.
 //
-// Current limitation: only raw (uncompressed) sections can be compared or written, because
-// the site has no aPLib codec yet. An image whose compressed sections differ from stock is
-// reported as unknown and refused.
+// Compressed sections are first-class: every offset a mod declares is an offset into the
+// section as the device sees it (decompressed), and a section is always compared on those
+// bytes. What a compressed section costs when it is stored is not a mod's business: a
+// rebuilt image packs to a different length, so the sections after it move and the file
+// changes size. The container is therefore compared structurally (see containerShell).
 
 import * as fw from "./syntakt-fw.js";
+import { BLOCK_REGION, OPERANDS } from "./sychord-picture-map.js";
 
 export const MODS = [
   {
@@ -22,7 +25,7 @@ export const MODS = [
     summary: "Put your own waves into the SY CHORD machine. You pick them with its WAVE knob, as before.",
     // Optional, for the hub page only; the engine above ignores these.
     status: "available",
-    touches: "Changes SY CHORD only. If you choose to, also the sine at WAVE 0, which other machines use too.",
+    touches: "Changes SY CHORD, and the wave pictures its screen draws. If you choose to, also the sine at WAVE 0, which other machines use too.",
     // The same template for every tool: a badge, a few facts shown on the card, the rest under "More about this tool".
     about: {
       badge: "Confirmed on hardware",
@@ -31,6 +34,7 @@ export const MODS = [
         ["Your files", "Single-cycle WAV files of any length, 8 to 32 bit, mono or stereo (left channel is used)."],
         ["Done for you", "Resized to one cycle of 256 points, centred, set to full level, lined up to start at zero, and limited in brightness."],
         ["Two ways", "Replace one wave, or insert a wave: the waves above move up one step and the last one drops off."],
+        ["On the screen", "The little wave picture in the WAVE cell is redrawn to match your waves. Checked on a real Syntakt."],
       ],
       more: [
         ["Tested on a real Syntakt",
@@ -38,11 +42,16 @@ export const MODS = [
          "Both came out within 1% of the waves that went in, over 40 harmonics. Every WAVE value that was left alone measured exactly as before. " +
          "Adding a second change to an already changed file was tested the same way."],
         ["What it changes in the firmware",
-         "Only the wave tables of SY CHORD, inside the part of the firmware that holds sound data. No program code, no sizes, nothing else. " +
-         "Before you can download, the site checks that your new file differs from the official one in those bytes only."],
+         "The wave tables of SY CHORD, and - if you leave that switched on - the 128 small wave pictures the screen draws for the " +
+         "WAVE knob, plus three small pointers that pick a picture for three of the WAVE values. No program instructions, no other machine. " +
+         "Before you can download, the site checks that your new file differs from " +
+         "the official one in those bytes only."],
+        ["The picture on the screen",
+         "Checked on a real Syntakt on 22 September 2026: a square, a triangle, a saw and a pulse put at WAVE 4, 8, 12 and 124 were " +
+         "drawn as those shapes, the values in between morphed, and untouched values kept their original pictures. If you would rather " +
+         "not have it, switch off \"Draw my waves on the Syntakt screen too\" in Settings; then only the waves change, exactly as before."],
         ["What stays the same",
-         "The small wave picture on the Syntakt screen still shows the original shape. The sound is yours, the picture is not. " +
-         "All other machines are untouched."],
+         "All other machines are untouched, and so is everything else on the screen."],
         ["WAVE 0 is special",
          "WAVE 0 is a sine that other machines also use. It is locked. If you unlock and change it, those machines change too."],
         ["Bright waves and high notes",
@@ -55,12 +64,67 @@ export const MODS = [
         ["Using it with other tools", "It can be combined with any tool that does not change the same bytes. The site checks this before you start."],
       ],
     },
+    // Section 7 holds the waves themselves; section 3 (compressed: the offsets below are into
+    // its decompressed bytes) holds the 128 pictures the screen draws and the three pointers
+    // that pick a picture for the WAVE values which do not own one.
     regions: [
       { section: 7, start: fw.WAVE.BANK_END - fw.WAVE.FRAMES * fw.WAVE.STEP, end: fw.WAVE.BANK_END, label: "wave bank, frames 1-31" },
       { section: 7, start: fw.WAVE.SINE_OFF, end: fw.WAVE.SINE_OFF + fw.WAVE.SAMPLES * 4, label: "frame 0, the sine shared with other machines", optional: true },
+      { section: 3, start: BLOCK_REGION.start, end: BLOCK_REGION.end, label: "wave pictures on the screen", optional: true },
+      ...OPERANDS.map((o) => ({ section: 3, start: o.pointer, end: o.pointer + 4, label: "picture pointer for WAVE " + o.value, optional: true })),
     ],
   },
 ];
+
+// ---- the container around the sections ------------------------------------------------
+//
+// ELE3 geometry, as syntakt-fw.js writes it: a section count word, then 16-byte table
+// entries of [id][offset][length][dest].
+
+const TABLE_OFF = 0x20, ENTRY = 16, ALIGN = 16;
+
+const firstOffsetOf = (parsed) => Math.min(...parsed.sections.map((s) => s.offset));
+
+/**
+ * The part of the container that must be identical in every image the site accepts:
+ * everything before the first section payload, with each table entry's offset and length
+ * field zeroed. Those two fields are the only header bytes a rebuild rewrites (see
+ * rebuildContainer in syntakt-fw.js), so an image whose compressed sections were packed
+ * again - and therefore moved - still has the same shell as the official file.
+ */
+export function containerShell(parsed) {
+  const first = firstOffsetOf(parsed);
+  const shell = parsed.container.slice(0, first);
+  for (let i = 0; i < parsed.sections.length; i++) {
+    const t = TABLE_OFF + i * ENTRY;
+    if (t + 12 <= shell.length) shell.fill(0, t + 4, t + 12);
+  }
+  return shell;
+}
+
+/** Every byte of the container that is not part of a section (alignment gaps, final padding) is zero. */
+export function paddingIsClean(parsed) {
+  const mask = new Uint8Array(parsed.container.length);
+  for (const s of parsed.sections) mask.fill(1, s.offset, s.offset + s.length);
+  for (let i = firstOffsetOf(parsed); i < mask.length; i++) if (!mask[i] && parsed.container[i] !== 0) return false;
+  return true;
+}
+
+/** The layout rule a rebuilt container follows: offset order, each section 16-byte aligned, padded end. */
+export function layoutIsRight(parsed, firstOffset = firstOffsetOf(parsed)) {
+  if (firstOffsetOf(parsed) !== firstOffset) return false;
+  const order = parsed.sections.slice().sort((a, b) => a.offset - b.offset);
+  let pos = firstOffset;
+  for (const s of order) {
+    pos += (ALIGN - (pos % ALIGN)) % ALIGN;
+    if (s.offset !== pos) return false;
+    pos += s.length;
+  }
+  return parsed.container.length === pos + ((ALIGN - (pos % ALIGN)) % ALIGN);
+}
+
+/** A section as the device sees it: decompressed when it is stored compressed. */
+export const sectionContent = (parsed, id) => fw.getSectionRaw(parsed, id);
 
 export function getMod(id, registry = MODS) {
   const m = registry.find((x) => x.id === id);
@@ -113,11 +177,24 @@ export function analyseImage(stock, image, registry = MODS) {
   }
   for (let i = 0; i < stock.sections.length; i++) {
     const s = stock.sections[i], t = image.sections[i];
-    if (s.id !== t.id || s.offset !== t.offset || s.length !== t.length || s.dest !== t.dest) {
-      unknown.push({ section: s.id, start: 0, end: s.length, reason: "section moved or resized (recompressed?)" });
+    if (s.id !== t.id || s.dest !== t.dest) {
+      unknown.push({ section: s.id, start: 0, end: s.length, reason: "the section table was rewritten" });
       continue;
     }
-    const a = fw.getSection(stock, s.id), b = fw.getSection(image, s.id);
+    // A compressed section is compared on its decompressed bytes: where it sits and how long
+    // it is when packed says nothing about its content.
+    let a, b;
+    try {
+      a = sectionContent(stock, s.id);
+      b = sectionContent(image, s.id);
+    } catch (err) {
+      unknown.push({ section: s.id, start: 0, end: s.length, reason: "this section could not be read: " + (err.message || err) });
+      continue;
+    }
+    if (a.length !== b.length) {
+      unknown.push({ section: s.id, start: 0, end: Math.max(a.length, b.length), reason: "section resized" });
+      continue;
+    }
     for (const [start, end] of diffRuns(a, b)) {
       // a run may span several regions of one mod but every byte must belong to some region
       let pos = start;
@@ -140,11 +217,17 @@ export function analyseImage(stock, image, registry = MODS) {
       }
     }
   }
-  // anything outside the section payloads (header, table, padding) must be identical
-  const mask = new Uint8Array(stock.container.length);
-  for (const s of stock.sections) mask.fill(1, s.offset, s.offset + s.length);
-  if (stock.container.length !== image.container.length) unknown.push({ section: null, start: 0, end: 0, reason: "container size differs" });
-  else for (let i = 0; i < mask.length; i++) if (!mask[i] && stock.container[i] !== image.container[i]) { unknown.push({ section: null, start: i, end: i + 1, reason: "container header or padding differs" }); break; }
+  // Everything outside the section payloads: the header and the table must match apart from
+  // the offset/length fields a rebuild rewrites, the gaps and the padding must be zero, and
+  // the table must follow the layout rule - so a section can only have moved because an
+  // earlier one packed to a different length.
+  if (fw.diffRange(containerShell(stock), containerShell(image)) !== null) {
+    unknown.push({ section: null, start: 0, end: 0, reason: "container header or section table differs" });
+  }
+  if (!paddingIsClean(image)) unknown.push({ section: null, start: 0, end: 0, reason: "container padding differs" });
+  if (!layoutIsRight(image, Math.min(...stock.sections.map((s) => s.offset)))) {
+    unknown.push({ section: null, start: 0, end: 0, reason: "the sections do not sit where a rebuilt container puts them" });
+  }
   return { mods: [...found.values()].map((e) => ({ ...e, regions: [...e.regions] })), unknown };
 }
 

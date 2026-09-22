@@ -69,6 +69,12 @@ file that is not OS 1.41 is refused rather than patched blindly.
    mod's declared regions, merges several mods per section, refuses conflicts, recomputes every
    checksum and verifies the result. Then the download is offered.
 
+A build that rewrites a **compressed** section has to pack it again: at level 3, the only level
+proven to reproduce the chain that was flashed on hardware, that is about 20 seconds for the MAIN OS
+section. The page says so while it works and runs the build in `js/build-worker.js` when the browser
+has module workers, so the tab stays responsive; without them it runs on the main thread. Both call
+the same `buildImage`.
+
 Your file and your changes are saved in this browser (IndexedDB) as you work, so a reload does not
 lose them. **Forget my files** erases them.
 
@@ -77,11 +83,23 @@ lose them. **Forget my files** erases them.
 ## How mods combine
 
 Every mod declares, up front, the byte ranges it may write, as `[start, end)` offsets inside a
-firmware section (`js/mods.js`). The rules, deliberately the weakest useful guarantee:
+firmware section (`js/mods.js`) - always inside the section **as the device sees it**, so for a
+compressed section the offsets are into its decompressed bytes. The rules, deliberately the weakest
+useful guarantee:
 
 - two mods may be combined only if their regions are disjoint;
 - an image may differ from the official file only inside regions of known mods;
-- no mod changes the length of a section, so every offset stays put.
+- no mod changes the length of a section's content, so every offset inside a section stays put.
+
+What a compressed section costs once it is packed is nobody's business but the codec's: a section
+that is written again almost never packs to its old length, so the sections after it move and the
+file changes size. The container is therefore compared structurally instead - same sections in the
+same order, the same header and table apart from the offset and length fields a rebuild rewrites,
+zero padding, and the layout rule (`mods.containerShell`, `layoutIsRight`, `paddingIsClean`).
+An image that only went through that rebuild has the official content but not the official bytes:
+`verifyImage` returns `ok: true, isStock: false, recompressed: true, mods: []`, and it is a perfectly
+good base to build on. `isStock` stays reserved for the official file byte for byte, because that is
+what it is used for: deciding whether a file can serve as the factory reference.
 
 Disjoint bytes mean the mods cannot corrupt each other. It does **not** mean they make musical or
 technical sense together, and the UI says so. A tool whose regions overlap something already in your
@@ -101,12 +119,16 @@ export const tool = {
   id: "sychord-waves",                      // must exist in MODS
   createState(),                            // -> plain, structured-clone-able state
   summarise(state, ctx),                    // -> [string] for the queue; [] means nothing queued
-  contribute(state, ctx),                   // -> [{ section, bytes }]; [] if nothing queued
+  contribute(state, ctx),                   // -> [{ section, bytes, note? }]; [] if nothing queued
   mount(container, state, ctx, onChange),   // render the view; onChange(next) on every edit
   unmount(),                                // drop listeners and object URLs
 };
 // ctx = { baseParsed, stockParsed | null, present: [{ id, title, regions }] }
 ```
+
+A contribution may target a **compressed** section. `bytes` is then the section as the device sees
+it - `fw.getSectionRaw(ctx.baseParsed, id)` long, decompressed - and the workbench packs it again on
+the way out. `note`, when present, is one plain line added to the build checklist.
 
 `state` must be plain data (arrays, numbers, strings, typed arrays). It is stored with the structured
 clone algorithm and handed back after a reload, so `serialise -> deserialise -> contribute` must
@@ -168,6 +190,19 @@ is exactly wave `k`; values in between interpolate linearly.
   re-normalised.
 - With the official file loaded, the tool marks the waves that already differ from the original ones
   and offers **Put the original waves back**. Without it, it says so and hides both.
+- **Draw my waves on the Syntakt screen too** (on by default) also rewrites the 128 small pictures
+  the instrument draws in the WAVE cell, so the screen shows the shapes that are actually playing.
+  Checked on an instrument on 2026-09-22. Switching it off gives exactly the earlier behaviour
+  (section 7 only, same file size).
+
+### How the pictures are written
+
+`js/wave-picture.js` renders one 17x17, 1-bpp picture (68 bytes) per WAVE value from the 32 key-frame
+cycles, morphing between frames the way the machine does. `js/sychord-picture-map.js` says where they
+live in the decompressed MAIN OS section: 125 blocks in one run, plus three WAVE values that own no
+block and reach a neighbour's through a four-byte pointer in code, which the tool repoints so those
+values show the right shape too. The tool writes all of that into a copy of the decompressed section
+and hands it over as a second contribution; the workbench takes only the declared bytes, as always.
 
 ### Supported WAV formats
 
@@ -194,13 +229,20 @@ Plain Node, no test framework, run from the **project root**:
 
 ```sh
 node web/test/dsp.test.mjs             # WAV decoding and cycle conditioning; no firmware needed
+node web/test/wave-picture.test.mjs    # the screen pictures; the factory comparison needs work/
 node web/test/codec.test.mjs           # .syx codec, against golden files in work/
+node web/test/aplib.test.mjs           # the compressed-section codec, against the C tool (~45 s)
+node web/test/container.test.mjs       # replacing a compressed section, byte for byte (~40 s)
 node web/test/mods.test.mjs            # registry, compatibility, image analysis
 node web/test/workbench.test.mjs       # stock-less verification, fingerprints, multi-mod build
 node web/test/firmware-input.test.mjs  # what a dropped file is, one or two at a time, the messages
 node web/test/session.test.mjs         # autosave, restore, re-verification, Forget (in-memory store)
-node web/test/e2e.test.mjs             # the plug-in interface end to end, against work/
+node web/test/e2e.test.mjs             # the plug-in interface end to end, against work/ (~25 s)
 ```
+
+`e2e` runs one full level-3 build, the way the page builds; everywhere else the tests pass
+`{ level: 0 }` to `buildImage`, because what the packed stream looks like is `container.test.mjs`'s
+job and packing is all the time.
 
 Everything except `dsp` reads firmware from `work/`, which is **never** part of this repository.
 Supply your own copy there to run them.
@@ -212,9 +254,11 @@ web/
   index.html              the whole site: workbench view + tool view, hash routed
   sychord-waves.html      redirect to index.html#/sychord-waves
   css/style.css           all the styling
-  js/syntakt-fw.js        .syx codec + wave bank access (provided, do not modify)
-  js/mods.js              mod registry + compatibility engine (do not change its logic)
+  js/syntakt-fw.js        .syx codec + container rebuild + wave bank access (provided, do not modify)
+  js/aplib.js             the compressed-section codec (depack / pack), a port of the C tool's
+  js/mods.js              mod registry + compatibility engine + the container checks
   js/workbench.js         verify an image without the official file; build from contributions
+  js/build-worker.js      the same build, off the main thread when the browser has module workers
   js/fingerprints.js      GENERATED digests of the official firmware (no firmware bytes)
   js/firmware-input.js    what a dropped file is, and the sentences about it; pure, Node-testable
   js/session.js           the loaded files, the tool states, autosave; pure, Node-testable
@@ -224,6 +268,8 @@ web/
   js/tools/sychord-waves.js  the wave tool: plug-in interface + its view
   js/bank.js              wave operations list and building section 7; pure, Node-testable
   js/wave-dsp.js          WAV decoding and single-cycle conditioning; pure, Node-testable
+  js/wave-picture.js      the 17x17 pictures the screen draws, rendered from cycles; pure
+  js/sychord-picture-map.js  where those pictures live in the decompressed MAIN OS section
   js/site.js              small DOM helpers, safe to import in Node
   js/app.js               the workbench UI: DOM only
   dev/make-fingerprints.mjs   regenerates js/fingerprints.js from your own official file
@@ -244,3 +290,67 @@ shown in a tool is read at runtime from the file you supply.
 - **mischa85 / elektron-firmware-tool** for the Elektron firmware container format.
 - The **digikit** and **dn2_firmware_explore** projects, for showing that a browser-only,
   bring-your-own-firmware editor is the right shape for this.
+
+## `js/aplib.js` - the compressed-section codec
+
+Most sections of an Elektron OS container are not stored raw: they are LZ77 streams with
+interlaced Elias-gamma codes (an aPLib variant), each behind an 8-byte header
+`[u32 stream length BE][u32 stream byte-sum BE]`. `js/aplib.js` reads and writes them:
+
+- `depack(section)` - whole section in, raw bytes out. It verifies the header length and
+  byte-sum before decoding and throws a readable error on anything malformed, so a damaged
+  file is rejected rather than quietly decoded into garbage.
+- `pack(raw, level = 3)` - raw bytes in, header + stream out. Levels 0..3 trade time for
+  size (how many match candidates the cost-optimal parse examines per position).
+- `streamSum(bytes)`, `streamStats(section)` and the format constants.
+
+It is a direct port of `aplib.c` from **mischa85's elektron-firmware-tool** (Marcel Bierling,
+MIT licensed) - the C chain whose output is proven on hardware. Same dependency-free, works in
+the browser and in Node.
+
+`node web/test/aplib.test.mjs` checks it against that tool's own files in `work/aplib-golden/`
+(never committed, supply your own): all four stock sections and the tool's level-3
+recompression of MAIN OS depack byte-identically, every level round-trips, and `pack(MAIN OS, 3)`
+comes out **byte-identical** to the C tool's level-3 section - which is the evidence that a
+stream written here is one the device's depacker accepts. The run takes about 40 seconds,
+most of it packing MAIN OS at level 3.
+
+## `js/syntakt-fw.js` - replacing a whole section
+
+Beyond the same-length `replaceRawSection`, the codec can replace a section whose stored
+length changes - including a compressed one, which almost never packs back to the same size:
+
+- `isCompressed(parsed, id)` - whether the section is stored as an aPLib stream. Nothing in
+  the table says so, so this is derived the way the reference C tool derives it: the stored
+  bytes are tried against the depacker, and a section that decodes is compressed. No
+  hard-coded list, so it does not assume one particular OS build.
+- `getSectionRaw(parsed, id)` - the section as the device sees it: decompressed when the
+  section is compressed, the stored bytes when it is not.
+- `replaceSection(parsed, id, bytes, { level = 3, onProgress })` - a **new parsed image** with that
+  section holding `bytes`, compressed first when the section is compressed. `onProgress(fraction)`
+  is called every 64 KB of packing with 0..1 and once with 1 at the end; `workbench.buildImage`
+  forwards it as `options.onProgress({ phase: "pack", section, fraction })`, and the page turns it
+  into the bar under the Build button (the worker relays it as `{ progress }` messages). **The stored
+  length may change**: the container is rebuilt from its section table, so later sections
+  move, the offsets and lengths in the table, the container size and every checksum are
+  recomputed, and the SysEx transport is re-encoded from scratch. The result is produced by
+  parsing the rebuilt file, so it is verified before it is returned.
+- `buildSyx(parsed)` - the `.syx` file bytes. An untouched parsed image round-trips to the
+  file it came from, byte for byte.
+
+`level` is the aPLib effort 0..3. **Level 3 reproduces the reference tool's output byte for
+byte**, so an image built here is the image that chain would have built; it costs about 16
+seconds for the largest section. Lower levels are much faster and slightly larger, and the
+device accepts them just as well.
+
+`node web/test/container.test.mjs` proves it against the C chain's own images in `work/`
+(never committed, supply your own): recompressing the largest section at level 3 reproduces
+that tool's repack **byte-identically**, as does the same repack with one byte changed in the
+decompressed section first - both of which booted on hardware. It also checks the round trip,
+that no other section moves a byte, that the rebuilt table follows the layout rule, and that
+a length change shifts everything after it. The run takes about 40 seconds.
+
+`mods.js` and `workbench.js` use this path: a mod may declare regions in a compressed section
+(the SY CHORD tool does, for the pictures on the screen), a contribution to one carries the
+decompressed bytes, and the build packs them again at level 3. See "How mods combine" for what
+that means for the size of the file and for how an image is recognised afterwards.

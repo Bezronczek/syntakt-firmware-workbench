@@ -9,6 +9,10 @@
 //
 // The workbench never writes firmware bytes itself: a tool hands it a rewritten copy of a section
 // and workbench.buildImage takes only the bytes inside that mod's declared regions.
+//
+// A build that rewrites a compressed section has to pack it again, which takes about twenty
+// seconds. It runs in js/build-worker.js when the browser has module workers, and on this thread
+// when it does not; either way it is the same buildImage.
 
 import * as fw from "./syntakt-fw.js";
 import * as wb from "./workbench.js";
@@ -33,7 +37,7 @@ const el = {
   toolList: $("tool-list"), queue: $("queue"),
   build: $("build"), buildNote: $("build-note"), checklist: $("checklist"),
   checkDetails: $("check-details"), checkSummary: $("check-summary"),
-  buildStatus: $("build-status"), downloadRow: $("download-row"), download: $("download"),
+  buildStatus: $("build-status"), buildProgress: $("build-progress"), downloadRow: $("download-row"), download: $("download"),
   after: $("after"), contains: $("contains"),
   toolTitle: $("tool-title"), toolImage: $("tool-image"), toolBody: $("tool-body"),
   toolDone: $("tool-done"), toolBack: $("tool-back"),
@@ -338,6 +342,7 @@ function invalidateBuild() {
 }
 
 function renderChecklist(rows) {
+  el.checkDetails.hidden = false; // shown only once there is something to read in it
   const frag = document.createDocumentFragment();
   for (const r of rows) {
     const li = node("li", r.ok === null ? "" : r.ok ? "ok" : "bad");
@@ -352,12 +357,49 @@ function renderChecklist(rows) {
   el.checklist.replaceChildren(frag);
 }
 
+/** A worker that could not even start: fall back to this thread rather than fail the build. */
+const broken = (err) => Object.assign(err, { workerBroken: true });
+
+function buildInWorker(baseParsed, contributions, level, onProgress) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker(new URL("./build-worker.js", import.meta.url), { type: "module" });
+    } catch (err) {
+      reject(broken(err instanceof Error ? err : new Error(String(err))));
+      return;
+    }
+    const finish = (fn, arg) => { worker.terminate(); fn(arg); };
+    worker.onerror = () => finish(reject, broken(new Error("the background build could not start")));
+    worker.onmessageerror = () => finish(reject, broken(new Error("the background build sent something unreadable")));
+    worker.onmessage = (ev) => {
+      const m = ev.data || {};
+      if (m.progress) { if (onProgress) onProgress(m.progress); return; }
+      if (m.ok) finish(resolve, { file: m.file, report: m.report });
+      else finish(reject, new Error(m.error || "the build failed"));
+    };
+    worker.postMessage({ fileBytes: baseParsed.file, contributions, level });
+  });
+}
+
+/** buildImage, in a worker when there is one. -> { file, report } */
+async function runBuild(baseParsed, contributions, level, onProgress) {
+  if (typeof Worker === "function") {
+    try {
+      return await buildInWorker(baseParsed, contributions, level, onProgress);
+    } catch (err) {
+      if (!err.workerBroken) throw err;
+    }
+  }
+  // On this thread the page cannot repaint while packing, so the bar stays where it is.
+  return wb.buildImage(baseParsed, contributions, undefined, undefined, { level, onProgress });
+}
+
 async function doBuild() {
   el.build.disabled = true;
   invalidateBuild();
-  say(el.buildStatus, "Building your file ...");
+  say(el.buildStatus, "Building your image ...");
   const rows = [];
-  el.checkDetails.hidden = false;
   const add = (name, ok, detail) => { rows.push({ name, ok, detail: detail || "" }); return ok; };
   const c = ctx();
 
@@ -373,15 +415,31 @@ async function doBuild() {
       clash.length ? clash.map((x) => x.a + " + " + x.b).join(", ") : list(all));
 
     const contributions = [];
+    const notes = [];
     let frames = [];
     for (const id of ids) {
       const tool = tools.get(id);
       const state = session.getToolState(id);
-      for (const part of tool.contribute(state, c)) contributions.push({ modId: id, section: part.section, bytes: part.bytes });
+      for (const part of tool.contribute(state, c)) {
+        contributions.push({ modId: id, section: part.section, bytes: part.bytes });
+        if (part.note) notes.push(part.note);
+      }
       if (tool.changedFrames) frames = frames.concat(tool.changedFrames(state, c));
     }
 
-    const res = await wb.buildImage(c.baseParsed, contributions);
+    // Packing a compressed section again is the slow part, and the only one worth warning about.
+    const slow = contributions.some((x) => fw.isCompressed(c.baseParsed, x.section));
+    say(el.buildStatus, slow ? "Building your image. This takes about 20 seconds." : "Building your image ...");
+    el.buildProgress.value = 0;
+    el.buildProgress.hidden = !slow;
+    const onProgress = (p) => {
+      if (p.phase !== "pack") return;
+      const pct = Math.min(100, Math.floor(p.fraction * 100));
+      el.buildProgress.value = pct;
+      say(el.buildStatus, "Packing the firmware program: " + pct + "%");
+    };
+    const res = await runBuild(c.baseParsed, contributions, 3, onProgress);
+    el.buildProgress.hidden = true;
     add("Every tool stayed inside the bytes it declared", res.report.strayWrites.length === 0,
       res.report.strayWrites.length
         ? res.report.strayWrites.map((s) => s.modId + " wrote " + plural(s.count, "byte", "bytes") +
@@ -396,8 +454,8 @@ async function doBuild() {
     } catch (err) {
       add("The new file reads back correctly, with valid checksums", false, String(err.message || err));
     }
-    add("The new file has exactly the size of the one you loaded", res.file.length === c.baseParsed.file.length,
-      res.file.length + " bytes");
+    add("Image size: " + res.file.length + " bytes; it was " + c.baseParsed.file.length, null,
+      res.file.length === c.baseParsed.file.length ? "unchanged" : "a part of it was packed again");
 
     const after = reparsed ? await wb.verifyImage(reparsed) : { ok: false, mods: [], unknown: [{ reason: "the output did not parse" }] };
     add("Nothing changed outside what the tools are allowed to touch", after.ok,
@@ -407,6 +465,7 @@ async function doBuild() {
       after.mods.map(fwin.describeModDetail).join("; ") || "none");
 
     if (frames.length) add("Waves written", null, list([...new Set(frames)].sort((a, b) => a - b).map((k) => "WAVE " + 4 * k)));
+    for (const note of notes) add(note, null);
     const sha = await fw.sha256hex(res.file);
     add("SHA-256 of the new file", null, sha);
     renderChecklist(rows);

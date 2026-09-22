@@ -2,26 +2,52 @@
 // SHA-256 digests only: no firmware bytes. Regenerate whenever mod regions change.
 export const FINGERPRINTS = {
   "version": "1.41",
-  "registry": "sychord-waves|7|343632|344660;sychord-waves|7|92032|123900",
-  "shell": "4a3d96b7e43e84d9bc0a233cd9fd303d4a8ae3ae521ba8009916648f78f3b700",
+  "registry": "sychord-waves|3|1275690|1275694;sychord-waves|3|1276504|1276508;sychord-waves|3|1276560|1276564;sychord-waves|3|3270568|3279068;sychord-waves|7|343632|344660;sychord-waves|7|92032|123900",
+  "shell": "e245d27adeb81ef8a5891d7c50a520e775b4e4ab50c1228656b597981f7f11c2",
+  "order": [
+    5,
+    2,
+    1,
+    3,
+    4,
+    6,
+    7,
+    8
+  ],
   "sections": {
     "1": {
       "offset": 15600,
       "length": 49252,
       "dest": 0,
-      "sha256": "e9b3e6cec38f26c94d2d185ae0d2b6d2215740727e9c293ba0275630a2d758ed"
+      "sha256": "e9b3e6cec38f26c94d2d185ae0d2b6d2215740727e9c293ba0275630a2d758ed",
+      "compressed": true,
+      "rawLength": 149516,
+      "raw": "c920a4cbcc53bec448f990674541246d3028ebcc3a8acc5849abb01b0dd76e67"
     },
     "2": {
       "offset": 192,
       "length": 15408,
       "dest": 67108864,
-      "sha256": "369652d548e9a76aa5e89e3ca9ee40fe27fa143212bb42e5bef5a38c65e275f2"
+      "sha256": "369652d548e9a76aa5e89e3ca9ee40fe27fa143212bb42e5bef5a38c65e275f2",
+      "compressed": true,
+      "rawLength": 30782,
+      "raw": "9fa34a8334548f70ec9fa62491e495bf768323e24608f4f3661115a6757b0f7d"
     },
     "3": {
       "offset": 64864,
       "length": 1442300,
       "dest": 1073742848,
-      "sha256": "5be0697cf8d9c2018a2651617e6d8f780a34c9107bd87569bf213411423a6ce7"
+      "sha256": "5be0697cf8d9c2018a2651617e6d8f780a34c9107bd87569bf213411423a6ce7",
+      "compressed": true,
+      "rawLength": 3438480,
+      "raw": "8cf2b4b4ea80d58953da46ca453328454fb3fca5cb5f844a2f7bad4b72241f53",
+      "masked": "7b838185353f057a0513581afa51b5bdbf483fdd0950af927c404083514d1d0d",
+      "regions": {
+        "sychord-waves|3|3270568|3279068": "4daabf964c9abf27bc78a7c10189e0e839d0819d902c4008327bd5c2c22ddabc",
+        "sychord-waves|3|1275690|1275694": "446b2d0cb96b38ed0f7c8b7db71154d7dac63d286bb6c536022e2aa805878c77",
+        "sychord-waves|3|1276504|1276508": "bf76f97fd01bf9d02c8aeb3565bfd99b52ad82970602943e8d00c73fd2dff5e1",
+        "sychord-waves|3|1276560|1276564": "bf76f97fd01bf9d02c8aeb3565bfd99b52ad82970602943e8d00c73fd2dff5e1"
+      }
     },
     "4": {
       "offset": 1507168,
@@ -56,7 +82,10 @@ export const FINGERPRINTS = {
       "offset": 1925456,
       "length": 103416,
       "dest": 0,
-      "sha256": "764f169834ac9ebcdbc1fd883e9f941be1eb43c2d57e4ff02e04685550838b06"
+      "sha256": "764f169834ac9ebcdbc1fd883e9f941be1eb43c2d57e4ff02e04685550838b06",
+      "compressed": true,
+      "rawLength": 159948,
+      "raw": "6943b2f27773f40f1e7857ea6fa7a121269e930bd403098e6b6c00002327dc20"
     }
   }
 };

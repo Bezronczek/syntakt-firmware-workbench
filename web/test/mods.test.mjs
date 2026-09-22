@@ -1,8 +1,9 @@
 // Tests for the mod registry / compatibility engine. Needs local firmware files in work/.
 // Run from the project root:  node web/test/mods.test.mjs
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import * as fw from "../js/syntakt-fw.js";
 import * as mods from "../js/mods.js";
+import { BLOCK_REGION } from "../js/sychord-picture-map.js";
 
 const rd = (p) => new Uint8Array(readFileSync(p));
 let fails = 0;
@@ -27,7 +28,38 @@ r = mods.analyseImage(stock, fw.parseSyx(rd("work/EXPERIMENT_frame0.syx")));
 ok("experiment 1 (bytes outside any mod) is refused as unknown", r.unknown.length > 0 && r.unknown.every((u) => u.section === 7));
 
 r = mods.analyseImage(stock, fw.parseSyx(rd("work/repack_D.syx")));
-ok("recompressed MAIN OS image is refused (sections moved)", r.unknown.length > 0);
+ok("a repacked image with a byte changed outside every mod is refused",
+  r.unknown.length > 0 && r.unknown.every((u) => u.section === 3));
+
+// ---- compressed sections: compared on the bytes the device sees ----------------------------
+// Packing MAIN OS again moves every section after it and changes the size of the file. That on
+// its own is not a change to anything: only the decompressed bytes count.
+const raw3 = fw.getSectionRaw(stock, 3);
+const rebuilt = existsSync("work/repack_C.syx")
+  ? fw.parseSyx(rd("work/repack_C.syx"))
+  : fw.replaceSection(stock, 3, raw3, { level: 0 });
+r = mods.analyseImage(stock, rebuilt);
+ok("a rebuilt image with unchanged content: nothing found, nothing unknown",
+  r.mods.length === 0 && r.unknown.length === 0);
+ok("  ... although its sections moved and the file is a different size",
+  rebuilt.container.length !== stock.container.length);
+
+const inside = raw3.slice();
+inside[BLOCK_REGION.start] ^= 0xff;
+inside[BLOCK_REGION.end - 1] ^= 0xff;
+r = mods.analyseImage(stock, fw.replaceSection(stock, 3, inside, { level: 0 }));
+ok("a change inside the picture region is the wave mod, with the bytes counted",
+  r.unknown.length === 0 && r.mods.length === 1 && r.mods[0].bytesChanged === 2 &&
+  r.mods[0].regions.join() === "wave pictures on the screen", JSON.stringify(r));
+
+const outside = raw3.slice();
+outside[BLOCK_REGION.end] ^= 0xff;
+r = mods.analyseImage(stock, fw.replaceSection(stock, 3, outside, { level: 0 }));
+ok("one byte past the end of the region is unknown", r.unknown.length === 1 && r.unknown[0].section === 3);
+
+ok("the container shell ignores the offsets and lengths a rebuild rewrites",
+  fw.diffRange(mods.containerShell(stock), mods.containerShell(rebuilt)) === null &&
+  mods.layoutIsRight(rebuilt) && mods.paddingIsClean(rebuilt));
 
 // synthetic registry: a second mod next to the bank, and a third one colliding with it
 const waves = mods.getMod("sychord-waves");

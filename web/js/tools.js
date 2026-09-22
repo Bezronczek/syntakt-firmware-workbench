@@ -8,7 +8,11 @@
 //   tool.id                                   must match an id in MODS
 //   tool.createState()                        -> plain, structured-clone-able state
 //   tool.summarise(state, ctx)                -> [string]  lines for the queue; [] = nothing queued
-//   tool.contribute(state, ctx)               -> [{ section, bytes }] built on ctx.baseParsed; [] = nothing
+//   tool.contribute(state, ctx)               -> [{ section, bytes, note? }] built on ctx.baseParsed; [] = nothing
+//                                             `bytes` is the section as the device sees it: the
+//                                             decompressed bytes of a compressed section, always
+//                                             exactly as long as the section it replaces.
+//                                             `note` is one line for the build checklist.
 //   tool.mount(container, state, ctx, onChange)  render the view; onChange(next) on every edit
 //   tool.unmount()                            drop listeners and object URLs
 //

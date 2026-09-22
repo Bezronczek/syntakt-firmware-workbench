@@ -1,10 +1,18 @@
-// Syntakt OS .syx codec + SY CHORD wave bank access. Pure functions, no dependencies;
-// runs in browsers and in Node (ES module). Never ships or fetches firmware: every
-// byte of Elektron data comes from the file the user supplies.
+// Syntakt OS .syx codec + SY CHORD wave bank access. Pure functions, no dependencies
+// beyond the sibling aplib.js; runs in browsers and in Node (ES module). Never ships or
+// fetches firmware: every byte of Elektron data comes from the file the user supplies.
 //
 // Layers: SysEx messages -> 8-in-7 packed packets -> [size:4][checksum:4] + ELE3 container.
-// Only same-size edits of a raw (uncompressed) section are supported, which is all the
-// wave bank needs, so no compressor is required and every offset stays put.
+//
+// Two ways to write a section:
+//   replaceRawSection()  patches the packets of the loaded file in place. Same length only,
+//                        raw sections only; every offset stays put. The wave bank uses this.
+//   replaceSection()     rebuilds the container from its section table and re-encodes the
+//                        whole transport, so the packed length may change and later sections
+//                        move. Compressed sections are packed with aplib.js on the way in.
+// The rebuild mirrors elektron-firmware-tool's ELE3 path (container.c build_ele3 +
+// transport.c syx_encode) byte for byte; see the notes on rebuildContainer/encodeSyx.
+import { depack as apDepack, pack as apPack } from "./aplib.js";
 
 export const SUPPORTED = {
   // sha256 of the official file -> description
@@ -24,6 +32,11 @@ export const WAVE = {
 };
 
 const PKT = 126, HDR = 9, ENC = 116, CK = 125, CK_FROM = 6, CK_SPAN = 119, DEC_PER_PKT = 101;
+const MARKER_LEN = 14, INFO_OFF = 7, INFO_LEN = 7, DEV_OFF = 3;
+/** ELE3 container geometry: section count word, then 16-byte table entries. */
+const ELE3 = { COUNT_OFF: 0x1c, TABLE_OFF: 0x20, ENTRY: 16, ALIGN: 16 };
+
+const align = (v, a) => v + ((a - (v % a)) % a);
 
 export async function sha256hex(bytes) {
   const d = await crypto.subtle.digest("SHA-256", bytes);
@@ -80,7 +93,11 @@ export function parseSyx(file) {
     const t = 0x20 + 16 * s;
     sections.push({ id: be32(container, t), offset: be32(container, t + 4), length: be32(container, t + 8), dest: be32(container, t + 12) });
   }
-  return { file, data, base, decoded, container, sections, version: String.fromCharCode(...container.subarray(0x14, 0x18)) };
+  // Everything the encoder needs to put the transport back together: the device id and the
+  // start marker's 7 info bytes (checksum seed, first block/seq counter, packet count).
+  const device = file[markers[0].start + DEV_OFF];
+  const markerInfo = file.slice(markers[0].start + INFO_OFF, markers[0].start + INFO_OFF + INFO_LEN);
+  return { file, data, base, device, markerInfo, decoded, container, sections, version: String.fromCharCode(...container.subarray(0x14, 0x18)) };
 }
 
 export function getSection(parsed, id) {
@@ -109,6 +126,150 @@ export function replaceRawSection(parsed, id, bytes) {
     body[CK] = packetChecksum(body, parsed.base);
   }
   return out;
+}
+
+// ---- compressed sections, container rebuild, transport encode -----------------------
+
+/** Cache of the "is this section an aPLib stream?" answer, per parsed image. */
+const compCache = new WeakMap();
+
+/**
+ * Is section `id` stored as an aPLib stream rather than raw?
+ * Derived exactly the way the C tool does it (container.c build_ele3): try to depack the
+ * stored bytes; a section that decodes to something non-empty is compressed. There is no
+ * flag in the table and no hard-coded list, so no assumption about a particular OS build.
+ */
+export function isCompressed(parsed, id) {
+  let m = compCache.get(parsed);
+  if (!m) compCache.set(parsed, (m = new Map()));
+  if (m.has(id)) return m.get(id);
+  let yes = false;
+  try { yes = apDepack(getSection(parsed, id)).length > 0; } catch { yes = false; }
+  m.set(id, yes);
+  return yes;
+}
+
+/** Section contents as the device sees them: decompressed if the section is compressed. */
+export function getSectionRaw(parsed, id) {
+  const stored = getSection(parsed, id);
+  return isCompressed(parsed, id) ? apDepack(stored) : stored;
+}
+
+/**
+ * Rebuild the ELE3 container with zero or more sections replaced. Mirrors build_ele3:
+ * everything before the first section (header + table) is copied verbatim, the sections
+ * are laid out in offset order each 16-byte aligned, the table's offset and length fields
+ * are rewritten in place (id and dest are kept), and the container is padded to a 16-byte
+ * boundary. Padding is zero, as in the C tool's calloc'd buffer.
+ * Only the no-HMAC ELE3 layout is implemented - the one Syntakt uses. An image with bytes
+ * past the aligned end of its sections carries a trailer this code cannot reproduce, so it
+ * is refused rather than silently rebuilt without it (cmd_replace refuses it too).
+ */
+function rebuildContainer(parsed, overrides, level, onProgress) {
+  const c = parsed.container, secs = parsed.sections;
+  let end = 0;
+  for (const s of secs) end = Math.max(end, s.offset + s.length);
+  if (c.length > align(end, ELE3.ALIGN)) throw new Error("container has a trailer this build path cannot reproduce");
+  const firstOff = Math.min(...secs.map((s) => s.offset));
+
+  // Sorted view of the table; the entries keep their original table slots.
+  const order = secs.map((s, i) => i).sort((a, b) => secs[a].offset - secs[b].offset);
+  const stored = new Map(); // table index -> bytes to write
+  for (const i of order) {
+    const s = secs[i];
+    const ov = overrides.find((o) => o.id === s.id);
+    if (!ov) stored.set(i, c.subarray(s.offset, s.offset + s.length));
+    else stored.set(i, isCompressed(parsed, s.id) ? apPack(ov.bytes, level, onProgress) : ov.bytes);
+  }
+
+  let pos = firstOff;
+  const at = new Map();
+  for (const i of order) { pos = align(pos, ELE3.ALIGN); at.set(i, pos); pos += stored.get(i).length; }
+  const out = new Uint8Array(align(pos, ELE3.ALIGN));
+  out.set(c.subarray(0, firstOff));
+  for (const i of order) {
+    out.set(stored.get(i), at.get(i));
+    const t = ELE3.TABLE_OFF + i * ELE3.ENTRY;
+    wr32(out, t + 4, at.get(i));
+    wr32(out, t + 8, stored.get(i).length);
+  }
+  return out;
+}
+
+/** 8-in-7, MSB byte first: 7 data bytes per group, their high bits collected in the lead byte. */
+function encode8in7(src, from, n, dst, at) {
+  let o = at;
+  for (let i = 0; i < n; i += 7) {
+    const nd = Math.min(7, n - i);
+    let ms = 0;
+    for (let k = 0; k < nd; k++) if (src[from + i + k] & 0x80) ms |= 1 << (6 - k);
+    dst[o++] = ms;
+    for (let k = 0; k < nd; k++) dst[o++] = src[from + i + k] & 0x7f;
+  }
+  return o;
+}
+
+/**
+ * Wrap a container in the SysEx transport, the way syx_encode does: the decoded stream is
+ * [size][content checksum] + container, zero-padded to a whole number of 126-byte data
+ * packets (always one packet more than the payload strictly needs), between a start and an
+ * end marker. Device, checksum seed and the marker's counter fields come from `parsed`,
+ * so an unchanged container re-encodes to the file it came from.
+ */
+function encodeSyx(container, parsed) {
+  const clen = container.length, npkt = Math.floor((8 + clen) / DEC_PER_PKT) + 1;
+  const stream = new Uint8Array(npkt * DEC_PER_PKT);
+  wr32(stream, 0, clen);
+  wr32(stream, 4, contentChecksum(container));
+  stream.set(container, 8);
+
+  const info = parsed.markerInfo.slice();
+  info[0] = parsed.base;
+  info[4] = (npkt >>> 14) & 0x7f; info[5] = (npkt >>> 7) & 0x7f; info[6] = npkt & 0x7f;
+  const startBlock = (info[1] << 7) | info[2], startSeq = info[3];
+
+  const out = new Uint8Array(2 * (MARKER_LEN + 2) + npkt * (PKT + 2));
+  let o = 0;
+  const marker = (kind) => {
+    out[o++] = 0xf0;
+    out.set([0x00, 0x20, 0x3c, parsed.device, 0x00, 0x7f, kind], o);
+    out.set(info, o + INFO_OFF);
+    o += MARKER_LEN;
+    out[o++] = 0xf7;
+  };
+  marker(0x01);
+  for (let k = 0; k < npkt; k++) {
+    out[o++] = 0xf0;
+    const b = o;
+    out.set([0x00, 0x20, 0x3c, parsed.device, 0x00, 0x7e], b);
+    const block = startBlock + ((startSeq + k) >>> 7);
+    out[b + 6] = (block >>> 7) & 0x7f; out[b + 7] = block & 0x7f;
+    out[b + 8] = (startSeq + k) & 0x7f;
+    encode8in7(stream, k * DEC_PER_PKT, DEC_PER_PKT, out, b + HDR);
+    out[b + CK] = packetChecksum(out.subarray(b, b + PKT), parsed.base);
+    o = b + PKT;
+    out[o++] = 0xf7;
+  }
+  marker(0x02);
+  return out;
+}
+
+/** The .syx file bytes of a parsed image (round trips an untouched one exactly). */
+export function buildSyx(parsed) {
+  return encodeSyx(parsed.container, parsed);
+}
+
+/**
+ * A new parsed image with section `id` holding `bytes`, compressing them first if the
+ * section is compressed. The stored length may change, in which case every later section
+ * moves and the table, the container size and all checksums are recomputed. `level` is the
+ * aPLib effort 0..3; level 3 reproduces the reference C tool's output byte for byte.
+ * The result is produced by parsing the rebuilt file, so it is verified before it is returned.
+ */
+export function replaceSection(parsed, id, bytes, { level = 3, onProgress = null } = {}) {
+  if (!parsed.sections.some((s) => s.id === id)) throw new Error("no section " + id);
+  const container = rebuildContainer(parsed, [{ id, bytes }], level, onProgress);
+  return parseSyx(encodeSyx(container, parsed));
 }
 
 // ---- SY CHORD wave bank -------------------------------------------------------------

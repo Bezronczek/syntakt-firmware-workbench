@@ -176,6 +176,7 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
 .status { min-height: 1.5em; font-size: 0.92rem; margin-top: 12px; }
 .status.ok { color: var(--ok); font-weight: 600; }
 .status.bad { color: var(--bad); font-weight: 600; }
+.build-progress { display: block; width: 100%; max-width: 420px; height: 10px; margin: 6px 0 12px; accent-color: var(--accent); }
 .status .hash { font-family: var(--mono); font-size: 0.8rem; word-break: break-all; display: block; font-weight: 400; color: var(--ink-dim); }
 
 /* ---- hub ----------------------------------------------------------------- */

@@ -114,6 +114,7 @@
       <span class="dim small" id="build-note">Load a firmware file first.</span>
     </p>
     <p class="status" id="build-status" role="status" aria-live="polite"></p>
+    <progress class="build-progress" id="build-progress" max="100" value="0" aria-label="Build progress" hidden></progress>
 
     <details class="checks" id="check-details" hidden>
       <summary id="check-summary">Details: what was checked</summary>
@@ -147,6 +148,10 @@
         Values next to it change a little too, because WAVE morphs between neighbours. Your projects
         themselves are untouched: flashing the official file back restores the original sound exactly.
       </p>
+      <p class="hint small">
+        If you left "Draw my waves on the Syntakt screen too" switched on, the picture in the WAVE
+        cell shows your shapes as well. Checked on a real Syntakt on 22 September 2026.
+      </p>
     </div>
   </section>
 
@@ -168,14 +173,21 @@
       <p class="hint">
         Every tool declares, up front, the exact byte ranges it may write. Two tools can be combined
         when those ranges do not touch; when they overlap the site refuses instead of guessing. No tool
-        changes the size of a firmware section, so every offset stays where it was. This is the weakest
-        useful guarantee, deliberately: disjoint bytes mean the tools cannot corrupt each other, not
-        that they make musical sense together. That part is your judgement.
+        changes the length of what a section holds, so every offset inside it stays where it was. This
+        is the weakest useful guarantee, deliberately: disjoint bytes mean the tools cannot corrupt
+        each other, not that they make musical sense together. That part is your judgement.
+      </p>
+      <p class="hint">
+        Some parts of the firmware are stored packed. A tool that changes one of those is allowed to,
+        and the site packs it again when you build: that part of the build takes about twenty seconds
+        and the file comes out a little smaller or larger than the one you loaded. The page shows both
+        sizes before you download.
       </p>
       <p class="hint">
         An image is recognised without the official file because the site stores SHA-256 fingerprints
         of the official firmware, never the firmware itself. Anything it cannot account for - another
-        tool's work, a recompressed image, a damaged download - is refused, with the sections listed.
+        tool's work, a file some other program rewrote, a damaged download - is refused, with the
+        sections listed.
       </p>
     </details>
   </section>

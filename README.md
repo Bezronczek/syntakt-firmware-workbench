@@ -26,6 +26,9 @@ with its WAVE knob, as before.
 - The tool resizes each wave to one cycle, centres it, sets it to full level, lines it up to start at
   zero and limits its brightness (40 harmonics by default, adjustable for each wave).
 - Replace one wave, or insert a wave so that the waves above it move up one step.
+- The small wave picture on the Syntakt screen is redrawn to match your waves (checked on an
+  instrument on 22 September 2026). You can switch it off in the tool's Settings; then only the
+  sound changes.
 
 ### How it was checked
 
@@ -34,16 +37,16 @@ instrument's own audio output (September 2026):
 
 - a saw and a square wave came out within 1% of the waves that went in, over 40 harmonics;
 - every WAVE value that was left alone measured exactly as it did before;
-- adding a second change to a file that had already been changed was tested the same way.
+- adding a second change to a file that had already been changed was tested the same way;
+- the screen pictures were checked by eye on the same unit: a square, a triangle, a saw and a pulse
+  showed up as those shapes, and untouched WAVE values kept their original pictures.
 
 Before it offers a download, the page checks that the new file differs from the official one only in
-the part that holds the SY CHORD waves.
+the parts that hold the SY CHORD waves and their pictures.
 
 ### Known limits
 
 - **OS 1.41 only.** Any other file is refused rather than changed blindly.
-- The small wave picture on the Syntakt screen still shows the original shape. The sound is yours,
-  the picture is not.
 - WAVE 0 is a sine that other machines also use. It is locked by default; if you unlock and change
   it, those machines change too.
 - SY CHORD keeps one copy of each wave for all notes, so very bright waves sound harsh on high notes.
@@ -58,10 +61,11 @@ the part that holds the SY CHORD waves.
 | Slot format | 257 samples, big-endian signed Q31: one cycle in 256 points plus a guard sample equal to the first. The cycle starts at a rising zero crossing, carries no DC, and is scaled to full level. |
 | Accepted input | One single-cycle WAV of any length: PCM 8, 16, 24 or 32 bit, IEEE float 32 or 64 bit, `WAVE_FORMAT_EXTENSIBLE`, mono or stereo. Only the first channel is read. |
 | Done to each input | DFT to the band limit (8 to 127 harmonics, 40 by default, kept per wave), resynthesised at 256 points, phase-aligned to a rising zero crossing, DC removed, scaled to full level. Always derived from the WAV samples, never from an earlier result. |
-| Part of the firmware that changes | Section 7 (sound data) only, and inside it only the SY CHORD wave tables. No code, no section lengths, no offsets; the built file has the size of the file you loaded. Waves you do not touch are copied byte for byte from that file. |
-| What does not change | The wave picture on the Syntakt screen, which still draws the original shapes. Every other machine. Your projects, patterns and sounds, which live on the instrument, not in the firmware file. They are not rewritten, but any that use a changed WAVE value will sound different. |
-| Checks before download | Eight, all shown under "Details": the loaded file still verifies; no two tools write the same bytes; every tool stayed inside the regions it declared (stray bytes are discarded, not applied); the new file decodes again with valid checksums; its size equals the loaded one's; every section matches the official OS 1.41 SHA-256 fingerprints outside the allowed regions; what the file now contains; and its SHA-256. A failed check means no download. |
-| Confirmed on hardware | 2026-09-21, one unit on OS 1.41, measured from its audio output over USB audio with notes sent over USB MIDI. A saw and a square came out within 0.009 of the harmonics that went in over h1..h40; every untouched WAVE value measured identical to factory (0.000); a build stacked on an already modified image changed only the wave it addressed, and left the earlier one bit-identical. |
+| Part of the firmware that changes | The SY CHORD wave tables in the part that holds sound data and, when the screen pictures are switched on, the 128 small wave pictures the screen draws for the WAVE knob, plus three 4-byte pointers that say which picture three of the WAVE values use. No program instructions, no other machine. Waves you do not touch are copied byte for byte from the file you loaded. |
+| Size of the built file | The same as the file you loaded when only the waves change. With the screen pictures on, the part of the firmware that holds them has to be packed again, so the file comes out a little smaller or larger; the page shows the old and the new size before you download. That also makes the build take about twenty seconds. |
+| What does not change | Every other machine, and everything else on the screen. Your projects, patterns and sounds, which live on the instrument, not in the firmware file. They are not rewritten, but any that use a changed WAVE value will sound different. |
+| Checks before download | Eight, all shown under "Details": the loaded file still verifies; no two tools write the same bytes; every tool stayed inside the regions it declared (stray bytes are discarded, not applied); the new file decodes again with valid checksums; the size it came out at; every section matches the official OS 1.41 SHA-256 fingerprints outside the allowed regions; what the file now contains; and its SHA-256. A failed check means no download. |
+| Confirmed on hardware | 2026-09-21, one unit on OS 1.41, measured from its audio output over USB audio with notes sent over USB MIDI. A saw and a square came out within 0.009 of the harmonics that went in over h1..h40; every untouched WAVE value measured identical to factory (0.000); a build stacked on an already modified image changed only the wave it addressed, and left the earlier one bit-identical. Screen pictures: 2026-09-22, same unit: a square, a triangle, a saw and a 25 % pulse placed at WAVE 4, 8, 12 and 124 were drawn on the screen as those shapes, the in-between values morphed, and untouched values kept the original pictures. |
 | Future OS versions | OS 1.41 only. Where the waves sit was found by measuring, not from documentation, so another OS release can move them. Other versions are refused rather than patched blindly. |
 | Combines with | Any tool whose byte regions are disjoint from this one's. The site declares the regions of every tool up front, checks them before you open a tool and again before the build, and refuses an overlap. Disjoint bytes mean the tools cannot corrupt each other; they do not mean the combination makes musical sense. |
 
