@@ -69,6 +69,20 @@ the parts that hold the SY CHORD waves and their pictures.
 | Future OS versions | OS 1.41 only. Where the waves sit was found by measuring, not from documentation, so another OS release can move them. Other versions are refused rather than patched blindly. |
 | Combines with | Any tool whose byte regions are disjoint from this one's. The site declares the regions of every tool up front, checks them before you open a tool and again before the build, and refuses an overlap. Disjoint bytes mean the tools cannot corrupt each other; they do not mean the combination makes musical sense. |
 
+## In progress
+
+- **LFO waves** - an eighth LFO waveform, in the same spirit as the DN2 community project. A first
+  version runs on one unit (OS 1.41): the new shape shows up in the LFO WAVE list and modulates as
+  expected. Still to do before it becomes a tool here: an icon for the new shape, genuinely new
+  shapes rather than a copy of an existing one, and the workbench plug-in itself.
+- **A safer test loop** - every change that touches program code is now tried in an emulator before
+  it goes anywhere near a real instrument (the digikit emulator, a separate GPL project, unmodified
+  in spirit: it runs our firmware file, we do not ship it). Data-only changes (waves, pictures)
+  never needed this.
+
+If you are working on something similar, or want to, open an issue first so we can avoid doing the
+same thing twice.
+
 ## What this repository does not contain
 
 No Elektron firmware, no factory sounds and no excerpts of either. You supply your own official
