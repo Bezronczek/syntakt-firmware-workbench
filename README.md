@@ -53,6 +53,21 @@ the parts that hold the SY CHORD waves and their pictures.
 - Patterns and sounds that use a WAVE value you changed, or one next to it, will sound different.
   Flash the official file to get everything back.
 
+**Deja Vu LFO** - two new LFO shapes, DV-F and DV-T, after RND on the WAVE knob of every LFO. Each
+is a loop of random steps; the behaviour is inspired by the Deja Vu control of Mutable Instruments
+Marbles.
+
+- SPH sets how the loop behaves: at 0 it plays new values all the time, at 64 it repeats, at 127 it
+  plays the same values in a new order.
+- MODE sets the length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number.
+- DV-F keeps running on its own; DV-T starts the loop again on every note.
+- The seven original shapes are unchanged.
+
+Checked on a Syntakt running OS 1.41 on 23 September 2026, on its screen and by ear: every loop
+length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks. The
+file the page builds is byte for byte the one that was checked. OS 1.41 only; a sound saved with
+DV-F or DV-T plays a different shape on the official firmware.
+
 ## Technical notes
 
 | | |
@@ -71,10 +86,6 @@ the parts that hold the SY CHORD waves and their pictures.
 
 ## In progress
 
-- **LFO waves** - an eighth LFO waveform, in the same spirit as the DN2 community project. A first
-  version runs on one unit (OS 1.41): the new shape shows up in the LFO WAVE list and modulates as
-  expected. Still to do before it becomes a tool here: an icon for the new shape, genuinely new
-  shapes rather than a copy of an existing one, and the workbench plug-in itself.
 - **A safer test loop** - every change that touches program code is now tried in an emulator before
   it goes anywhere near a real instrument (the digikit emulator, a separate GPL project, unmodified
   in spirit: it runs our firmware file, we do not ship it). Data-only changes (waves, pictures)

@@ -266,10 +266,12 @@ web/
   js/router.js            #/ and #/<tool id>
   js/tools.js             the registry of tool modules
   js/tools/sychord-waves.js  the wave tool: plug-in interface + its view
+  js/tools/lfo-dv.js      the Deja Vu LFO tool: plug-in interface + its view
   js/bank.js              wave operations list and building section 7; pure, Node-testable
   js/wave-dsp.js          WAV decoding and single-cycle conditioning; pure, Node-testable
   js/wave-picture.js      the 17x17 pictures the screen draws, rendered from cycles; pure
   js/sychord-picture-map.js  where those pictures live in the decompressed MAIN OS section
+  js/lfo-dv.js            the Deja Vu LFO patch (shapes DV-F, DV-T) on the decompressed MAIN OS section; pure
   js/site.js              small DOM helpers, safe to import in Node
   js/app.js               the workbench UI: DOM only
   dev/make-fingerprints.mjs   regenerates js/fingerprints.js from your own official file
