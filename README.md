@@ -107,7 +107,27 @@ or to pull requests.
 | --- | --- |
 | `web/` | The site: plain HTML, CSS and JavaScript modules. No build step, no frameworks, no external requests. `web/README.md` explains the structure and how to add a tool. |
 | `web/test/` | Node tests. Several of them need your own copy of the official file on disk; none is included. |
-| `tools/` | `din_loopback_test.py` (Windows): checks that your MIDI interface can carry a whole firmware file over a DIN cable without losing data, by looping its MIDI OUT to its own MIDI IN. Worth running before you rely on that interface to restore the official firmware. |
+| `tools/` | `din_loopback_test.py` (Windows): checks that your MIDI interface can carry a whole firmware file over a DIN cable without losing data, by looping its MIDI OUT to its own MIDI IN. Worth running before you rely on that interface to restore the official firmware. <br> `syntakt_os_flash.py` (Windows): flashes an OS file over USB without pressing YES on the instrument - see "Flash from the command line" below. |
+
+## Flash from the command line
+
+`tools/syntakt_os_flash.py` (Windows, Python 3.8 or later, no packages) sends an OS file to a Syntakt
+over USB the way Elektron Transfer does, and confirms the upgrade itself, so the instrument does not
+ask "UPGRADE OS NOW?". The Syntakt still checks the whole file before it writes anything.
+
+```
+python tools/syntakt_os_flash.py check              talk to the Syntakt, change nothing
+python tools/syntakt_os_flash.py probe FILE.syx     send the start of FILE, then cancel
+python tools/syntakt_os_flash.py flash FILE.syx     flash FILE (you type FLASH to confirm)
+```
+
+- **Make sure you can put the official OS back first** (Early Startup Menu, OS UPGRADE, over a MIDI
+  DIN cable). The instrument does not ask again, so check the file name twice.
+- Close Elektron Transfer first: only one program can use the Syntakt's MIDI port.
+- The script prints the file's SHA-256 and says whether it is the official OS 1.41 file.
+- Tested on one Syntakt on OS 1.41 in September 2026: this script flashed an image built here, and the
+  same sequence flashed the official file.
+  It uses the connection Transfer uses, which Elektron does not document; another OS may change it.
 
 ## Run it locally
 
@@ -130,6 +150,9 @@ runs the tests that need no firmware file.
   the file-format groundwork that Elektron firmware projects build on.
 - [dn2_firmware_explore](https://angellinares.github.io/dn2_firmware_explore/) - the model for a
   browser-only tool that works on the owner's own file.
+- [digikit](https://github.com/m-dwyer/digikit) - its notes on the Elektron MIDI connection were the
+  starting point for `syntakt_os_flash.py` (the script is our own code; no digikit code is included).
+- Mutable Instruments Marbles by Émilie Gillet - the Deja Vu idea behind the Deja Vu LFO tool.
 
 ## License
 

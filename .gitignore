@@ -9,9 +9,10 @@
 !/web/
 !/tools/
 
-# tools/: only device-agnostic helpers for users. Research and test scripts stay private.
+# tools/: only small helpers for users. Research and test scripts stay private.
 /tools/*
 !/tools/din_loopback_test.py
+!/tools/syntakt_os_flash.py
 
 # web/: no mockups, no internal specs
 /web/mockup*.html
