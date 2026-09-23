@@ -22,6 +22,7 @@
 
 export const TOOLS = {
   "sychord-waves": () => import("./tools/sychord-waves.js"),
+  "lfo-dv": () => import("./tools/lfo-dv.js"),
 };
 
 export const TOOL_IDS = Object.keys(TOOLS);

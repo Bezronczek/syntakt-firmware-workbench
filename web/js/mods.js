@@ -16,6 +16,7 @@
 
 import * as fw from "./syntakt-fw.js";
 import { BLOCK_REGION, OPERANDS } from "./sychord-picture-map.js";
+import * as lfoDv from "./lfo-dv.js";
 
 export const MODS = [
   {
@@ -74,6 +75,32 @@ export const MODS = [
       ...OPERANDS.map((o) => ({ section: 3, start: o.pointer, end: o.pointer + 4, label: "picture pointer for WAVE " + o.value, optional: true })),
     ],
   },
+  {
+    // DRAFT COPY: summary, touches and about are drafts for the author to rewrite (web/COPY-GUIDE.md).
+    id: "lfo-dv",
+    title: "DV LFO Shapes",
+    summary: "Two new LFO shapes, DV-F and DV-T: a loop of random steps you can lock, vary or shuffle with SPH.",
+    status: "available",
+    touches: "Changes the LFO of every track: two shapes are added after RND, and SPH and MODE work differently for them. The seven original shapes are unchanged.",
+    about: {
+      badge: "Confirmed on hardware",
+      facts: [
+        ["Shapes", "DV-F keeps running on its own. DV-T starts the loop again on every note."],
+        ["SPH", "0: new values all the time. 64: the loop repeats. 127: the same values in a new order."],
+        ["MODE", "Length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number."],
+      ],
+      more: [
+        ["Tested on a real Syntakt",
+         "Built with the same code as this page, flashed onto a Syntakt running OS 1.41 on 23 September 2026 and checked on its screen and by ear: " +
+         "every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks."],
+        ["Your existing sounds",
+         "Sounds that use one of the seven original shapes do not change. A sound saved with DV-F or DV-T plays a different shape on the official firmware."],
+        ["Only OS 1.41", "Other OS versions are refused."],
+        ["Using it with other tools", "It can be combined with any tool that does not change the same bytes. The site checks this before you start."],
+      ],
+    },
+    regions: lfoDv.REGIONS.map((r) => ({ section: lfoDv.SECTION, start: r.start, end: r.end, label: r.label })),
+},
 ];
 
 // ---- the container around the sections ------------------------------------------------
