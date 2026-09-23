@@ -1,4 +1,4 @@
-// The DV LFO shapes tool, as a workbench plug-in (see js/tools.js for the interface).
+// The Deja Vu LFO tool (shapes DV-F and DV-T), as a workbench plug-in (see js/tools.js for the interface).
 // State: { add: boolean }. Every byte-level decision lives in ../lfo-dv.js, which the Node tests drive.
 // DRAFT COPY: the user-facing strings below are drafts for the author to rewrite (web/COPY-GUIDE.md).
 
@@ -28,7 +28,7 @@ export function contribute(state, ctx) {
 
 const VIEW = `
 <p class="lead-line">Add two new LFO shapes to your file.</p>
-<p class="hint small">They come after RND on the WAVE knob of every LFO. Nothing is written here: you build your file on the workbench.</p>
+<p class="hint small">They come after RND on the WAVE knob of every LFO. Their behaviour is inspired by the Deja Vu control of Mutable Instruments Marbles. Nothing is written here: you build your file on the workbench.</p>
 <div class="tool-note" data-x="note" hidden></div>
 <dl class="facts">
   <dt>DV-F</dt><dd>A loop of random steps that keeps running on its own.</dd>

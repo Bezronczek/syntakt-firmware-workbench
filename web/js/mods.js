@@ -78,14 +78,16 @@ export const MODS = [
   {
     // DRAFT COPY: summary, touches and about are drafts for the author to rewrite (web/COPY-GUIDE.md).
     id: "lfo-dv",
-    title: "DV LFO Shapes",
-    summary: "Two new LFO shapes, DV-F and DV-T: a loop of random steps you can lock, vary or shuffle with SPH.",
+    title: "Deja Vu LFO",
+    summary: "Two new LFO shapes, DV-F and DV-T: a loop of random steps you can lock, vary or shuffle with SPH. " +
+      "The behaviour is inspired by the Deja Vu control of Mutable Instruments Marbles.",
     status: "available",
     touches: "Changes the LFO of every track: two shapes are added after RND, and SPH and MODE work differently for them. The seven original shapes are unchanged.",
     about: {
       badge: "Confirmed on hardware",
       facts: [
         ["Shapes", "DV-F keeps running on its own. DV-T starts the loop again on every note."],
+        ["Inspired by", "The Deja Vu control of Mutable Instruments Marbles: random values that can repeat, change or be reshuffled."],
         ["SPH", "0: new values all the time. 64: the loop repeats. 127: the same values in a new order."],
         ["MODE", "Length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number."],
       ],

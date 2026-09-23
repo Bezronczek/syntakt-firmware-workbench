@@ -1,4 +1,4 @@
-// DV LFO shapes: two "deja vu" random loopers added to the LFO WAVE list of Syntakt OS 1.41, after the
+// Deja Vu LFO: two random loopers, inspired by the Deja Vu control of Mutable Instruments Marbles, added to the LFO WAVE list of Syntakt OS 1.41, after the
 // seven built-in shapes: DV-F (runs free) and DV-T (every note restarts the loop).
 //   SPH  = deja vu: 0 new values all the time, 64 the loop repeats, 127 the same values in a new order.
 //   MODE = loop length: 2, 4, 8, 16 or 32 steps; the MODE cell shows that number for a DV shape.
