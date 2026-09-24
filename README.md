@@ -23,6 +23,12 @@ with its WAVE knob, as before.
 
 - 31 waves can be changed (WAVE 4, 8, 12 ... 124); the values in between morph from one wave to the next.
 - Takes single-cycle WAV files of any length, 8 to 32 bit, mono or stereo (left channel is used).
+- Makes chord waves: one wave that holds a whole chord (major, minor, sus, diminished, augmented,
+  sixths, sevenths, ninths), in any inversion. With the default tuning the root is four octaves
+  above the note you play, so lower TUNE to bring the chord down; "Pure intervals" tunes every
+  interval exactly instead.
+- Fills many waves at once from a [WaftWave](https://wftlrd.uk/waftwave/) bank (.json) or a ZIP of
+  WAV files. A bank with more waves than fit can be spread evenly over the free waves.
 - The tool resizes each wave to one cycle, centres it, sets it to full level, lines it up to start at
   zero and limits its brightness (40 harmonics by default, adjustable for each wave).
 - Replace one wave, or insert a wave so that the waves above it move up one step.
@@ -39,7 +45,9 @@ instrument's own audio output (September 2026):
 - every WAVE value that was left alone measured exactly as it did before;
 - adding a second change to a file that had already been changed was tested the same way;
 - the screen pictures were checked by eye on the same unit: a square, a triangle, a saw and a pulse
-  showed up as those shapes, and untouched WAVE values kept their original pictures.
+  showed up as those shapes, and untouched WAVE values kept their original pictures;
+- a chord wave and a wave from a WaftWave bank were played and looked at on the same unit on
+  23 September 2026.
 
 Before it offers a download, the page checks that the new file differs from the official one only in
 the parts that hold the SY CHORD waves and their pictures.
@@ -70,10 +78,14 @@ DV-F or DV-T plays a different shape on the official firmware.
 
 ## Technical notes
 
+### SY CHORD Wave Bank
+
 | | |
 | --- | --- |
 | Slots | 31 waves: WAVE 4, 8, 12 ... 124. The machine interpolates the values in between. WAVE 0 is a sine shared with other machines and is locked unless you allow it. |
 | Slot format | 257 samples, big-endian signed Q31: one cycle in 256 points plus a guard sample equal to the first. The cycle starts at a rising zero crossing, carries no DC, and is scaled to full level. |
+| Chord waves | Equal-level sines on whole-number harmonics, with phases picked from a fixed search to keep the peak low. "Root on the note you play": root on harmonic 16, other notes rounded to the nearest harmonic (at most 27 cents from just intonation). "Pure intervals": the smallest whole numbers with the exact ratios (4:5:6, 10:12:15, ...). Inversions move the lowest notes up an octave. The band limit is raised to the chord's top harmonic so no note is cut. |
+| WaftWave banks | `.json` with `format: "mmdt-digipro-bank"`: up to 64 waves of 96 unsigned 8-bit samples (128 = zero), read from `data` or the older `dataU8`; empty slots are skipped. A ZIP is read in the browser (stored or deflated entries); its WAVs are taken in name order. More waves than free slots: spread evenly from the first to the last, or the first ones. |
 | Accepted input | One single-cycle WAV of any length: PCM 8, 16, 24 or 32 bit, IEEE float 32 or 64 bit, `WAVE_FORMAT_EXTENSIBLE`, mono or stereo. Only the first channel is read. |
 | Done to each input | DFT to the band limit (8 to 127 harmonics, 40 by default, kept per wave), resynthesised at 256 points, phase-aligned to a rising zero crossing, DC removed, scaled to full level. Always derived from the WAV samples, never from an earlier result. |
 | Part of the firmware that changes | The SY CHORD wave tables in the part that holds sound data and, when the screen pictures are switched on, the 128 small wave pictures the screen draws for the WAVE knob, plus three 4-byte pointers that say which picture three of the WAVE values use. No program instructions, no other machine. Waves you do not touch are copied byte for byte from the file you loaded. |
@@ -83,6 +95,25 @@ DV-F or DV-T plays a different shape on the official firmware.
 | Confirmed on hardware | 2026-09-21, one unit on OS 1.41, measured from its audio output over USB audio with notes sent over USB MIDI. A saw and a square came out within 0.009 of the harmonics that went in over h1..h40; every untouched WAVE value measured identical to factory (0.000); a build stacked on an already modified image changed only the wave it addressed, and left the earlier one bit-identical. Screen pictures: 2026-09-22, same unit: a square, a triangle, a saw and a 25 % pulse placed at WAVE 4, 8, 12 and 124 were drawn on the screen as those shapes, the in-between values morphed, and untouched values kept the original pictures. |
 | Future OS versions | OS 1.41 only. Where the waves sit was found by measuring, not from documentation, so another OS release can move them. Other versions are refused rather than patched blindly. |
 | Combines with | Any tool whose byte regions are disjoint from this one's. The site declares the regions of every tool up front, checks them before you open a tool and again before the build, and refuses an overlap. Disjoint bytes mean the tools cannot corrupt each other; they do not mean the combination makes musical sense. |
+
+### Deja Vu LFO
+
+| | |
+| --- | --- |
+| Shapes | Nine on the WAVE knob of every LFO: the seven original ones, unchanged, then DV-F and DV-T. |
+| How a loop works | Each LFO keeps its own loop of random levels and plays one level per step, 16 steps per LFO cycle. SPH decides what happens at each step: below 64 a step is more and more likely to get a new random level (always at 0); at 64 the loop repeats exactly; above 64 it more and more often jumps to another of its own levels, so the same levels come in a new order (always at 127). |
+| Loop length | For these two shapes MODE sets the length instead of its usual job: FREE, TRIG, HOLD, ONE and HALF give 2, 4, 8, 16 and 32 steps. The MODE cell then shows the number instead of the usual icon. |
+| DV-F and DV-T | DV-F always runs freely, as in FREE mode. DV-T always goes back to the first step of its loop on every note, so the loop plays from the start with each trig. |
+| Speed, depth, destination | SPD and MULT set the speed of the LFO cycle, and so of the steps; DEP and DEST work as for any other shape. |
+| On the screen | The shape names DV-F and DV-T in the WAVE cell, a fixed picture for each, and the loop length in the MODE cell. |
+| Part of the firmware that changes | The main program: our own code and small tables for the two shapes, written into space that is empty in the official file, plus a few small changes in place so that the WAVE knob offers nine shapes and the screen names and draws them. No sound data, no other machine, nothing else on the screen. |
+| Size of the built file | The main program part has to be packed again, so the file comes out a little smaller or larger; the page shows the old and the new size before you download. |
+| What does not change | Every sound, pattern and LFO setting that uses one of the seven original shapes. |
+| Checks before download | The same eight checks as for every tool. The file the page builds is byte for byte the one checked on the instrument. |
+| Confirmed on hardware | 2026-09-23, one unit on OS 1.41, on its screen and by ear: every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks at once. Every change to program code was first run in an emulator before it was flashed. |
+| Your existing sounds | A sound saved with DV-F or DV-T plays a different shape on the official firmware, because that firmware knows only seven. |
+| Future OS versions | OS 1.41 only. Other versions are refused rather than patched blindly. |
+| Combines with | SY CHORD Wave Bank, and any other tool whose byte regions are disjoint from this one's; the site checks this before the build. |
 
 ## In progress
 

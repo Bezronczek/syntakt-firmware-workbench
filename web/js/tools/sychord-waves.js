@@ -20,6 +20,8 @@ import * as bank from "../bank.js";
 import { node, say, wireDrop, saveBlob } from "../site.js";
 import { decodeWav, encodeWavFloat32, DEFAULT_HARMONICS, MIN_HARMONICS, MAX_HARMONICS } from "../wave-dsp.js";
 import { picturesForBank } from "../wave-picture.js";
+import { CHORDS, chordById, chordCycle, inversionCount, semitonesAbove } from "../chord-waves.js";
+import { parseWaftBank, spreadIndices, wavsFromZip } from "../bank-import.js";
 import { BLOCK_OF_VALUE, OPERANDS, SECTION_BASE } from "../sychord-picture-map.js";
 
 const MOD_ID = "sychord-waves";
@@ -123,6 +125,7 @@ const VIEW = `
 <p class="lead-line">Pick a wave, then drop a WAV file on it.</p>
 <p class="hint small">
   The WAVE knob of SY CHORD sweeps through these 32 waves, left to right, and morphs between them.
+  A WaftWave bank (.json) or a ZIP of WAV files fills many waves at once.
   Nothing is written here: you build your file in step 3.
 </p>
 <div class="tool-note" data-x="note" hidden></div>
@@ -181,6 +184,19 @@ const VIEW = `
       <button type="button" class="btn btn-primary" data-x="loadWav">Load a WAV file</button>
       <span class="dim small">or drop one on a wave above</span>
     </p>
+    <details class="chord" data-x="chordBox">
+      <summary>Or make a chord wave</summary>
+      <label>Chord <select data-x="chord"></select></label>
+      <label>Inversion <select data-x="inversion"></select></label>
+      <label>Tuning
+        <select data-x="tuning">
+          <option value="octave">Root on the note you play</option>
+          <option value="just">Pure intervals</option>
+        </select>
+      </label>
+      <small data-x="chordNote"></small>
+      <button type="button" class="btn btn-small" data-x="putChord">Put this chord here</button>
+    </details>
     <div class="limiter" data-x="limiter" hidden>
       <label for="wt-harm">Brightness: <b data-x="harmOut"></b> harmonics</label>
       <input type="range" id="wt-harm" data-x="harm" min="8" max="127" step="1">
@@ -202,7 +218,7 @@ const VIEW = `
   <p class="status" data-x="status" role="status" aria-live="polite"></p>
 </div>
 
-<input type="file" data-x="wavInput" accept=".wav,.WAV,audio/wav" multiple class="visually-hidden">
+<input type="file" data-x="wavInput" accept=".wav,.WAV,audio/wav,.json,.zip" multiple class="visually-hidden">
 `;
 
 let view = null; // the mounted view, or null
@@ -316,9 +332,16 @@ export function mount(container, initial, ctx, onChange) {
     return r ? r.value : "replace";
   }
 
+  const isBankFile = (f) => /\.(json|zip)$/i.test(f.name);
+
   function onWavDrop(k, files) {
+    const bankFile = files.find(isBankFile);
+    if (bankFile) { importBank(k, bankFile); return; }
     const wavs = files.filter((f) => /\.wav$/i.test(f.name));
-    if (!wavs.length) { say(el.status, "That was not a WAV file. Drop a single-cycle WAV instead.", "bad"); return; }
+    if (!wavs.length) {
+      say(el.status, "That was not a WAV file. Drop a single-cycle WAV, a WaftWave bank (.json) or a ZIP instead.", "bad");
+      return;
+    }
     if (wavs.length === 1) { select(k); importWav(k, wavs[0], modeNow()); return; }
     const sorted = wavs.slice().sort((a, b) => a.name.localeCompare(b.name));
     const first = Math.max(k, state.allowFrame0 ? 0 : 1);
@@ -341,24 +364,34 @@ export function mount(container, initial, ctx, onChange) {
       });
   }
 
+  function lockedMessage() {
+    say(el.status, "WAVE 0 is locked. Open Settings and allow it, if you really want to change the " +
+      "sine that other machines share.", "bad");
+  }
+
+  /**
+   * Queue one cycle for slot k. Conditions it straight away, so a bad wave fails here and not
+   * at build time. Returns the new operation, or throws with a reason worth showing.
+   */
+  function addWave(k, mode, name, samples, harmonics) {
+    const op = bank.makeOp(k, mode, name, samples, clampHarm(harmonics ?? state.defaultHarmonics));
+    bank.opEntry(op);
+    commit({ ops: bank.addOp(state.ops, op) });
+    return op;
+  }
+
   async function importWav(k, file, mode, quiet) {
-    if (k === 0 && !state.allowFrame0) {
-      say(el.status, "WAVE 0 is locked. Open Settings and allow it, if you really want to change the " +
-        "sine that other machines share.", "bad");
-      return false;
-    }
+    if (k === 0 && !state.allowFrame0) { lockedMessage(); return false; }
     let op;
     try {
       const wav = decodeWav(await file.arrayBuffer());
-      op = bank.makeOp(k, mode, file.name, wav.samples, clampHarm(state.defaultHarmonics));
-      bank.opEntry(op); // conditions the wave now, so a bad file fails here and not at build time
+      op = addWave(k, mode, file.name, wav.samples);
       if (wav.channels > 1 && !quiet) say(el.status, file.name + ": stereo file, only the left channel was used.");
     } catch (err) {
       if (!quiet) say(el.status, file.name + " could not be used: " + (err.message || err) +
         " Try a single-cycle WAV file.", "bad");
       return false;
     }
-    commit({ ops: bank.addOp(state.ops, op) });
     if (!quiet) {
       say(el.status, file.name + (op.mode === "insert" ? " inserted at WAVE " : " added to WAVE ") +
         bank.waveValue(k) + ". Add more waves, or press Done and build.");
@@ -366,27 +399,125 @@ export function mount(container, initial, ctx, onChange) {
     return true;
   }
 
+  // ---- a whole bank at once: WaftWave .json or a ZIP of WAVs ---------------------------------
+
+  async function importBank(k, file) {
+    let waves, skipped = 0;
+    try {
+      if (/\.json$/i.test(file.name)) {
+        waves = parseWaftBank(await file.text());
+      } else {
+        ({ waves, skipped } = await wavsFromZip(await file.arrayBuffer()));
+      }
+    } catch (err) {
+      say(el.status, file.name + " could not be used: " + (err.message || err) + ".", "bad");
+      return;
+    }
+    const first = Math.max(k, state.allowFrame0 ? 0 : 1);
+    const room = bank.FRAME_COUNT - first;
+    const place = (picked) => {
+      let done = 0;
+      const bad = [];
+      picked.forEach((w, i) => {
+        try { addWave(first + i, "replace", w.name, w.samples); done++; } catch { bad.push(w.name); }
+      });
+      select(first);
+      say(el.status, done + " wave(s) from " + file.name + " added from WAVE " + bank.waveValue(first) + " up." +
+        (bad.length ? " " + bad.length + " could not be used, for example " + bad[0] + "." : "") +
+        (skipped ? " " + skipped + " file(s) in the ZIP were not readable WAVs." : "") +
+        " Add more, or press Done and build.",
+        bad.length ? "bad" : "");
+    };
+    const range = (n) => "WAVE " + bank.waveValue(first) + " to " + bank.waveValue(first + n - 1);
+    if (waves.length <= room) {
+      askInline("Put the " + waves.length + " waves from " + file.name + " on " + range(waves.length) + "?",
+        "Yes, add " + waves.length + " waves", () => place(waves));
+      return;
+    }
+    askInline(
+      file.name + " has " + waves.length + " waves, and " + room + " fit on " + range(room) +
+      ". Use " + room + " of them, spread evenly from the first to the last, so the whole sweep fits?",
+      "Yes, spread " + room + " waves", () => place(spreadIndices(waves.length, room).map((i) => waves[i])),
+      { label: "Take the first " + room, onClick: () => place(waves.slice(0, room)) });
+  }
+
+  // ---- a chord built here ----------------------------------------------------------------------
+
+  for (const c of CHORDS) {
+    const o = node("option", null, c.name);
+    o.value = c.id;
+    el.chord.append(o);
+  }
+
+  function chordChoice() {
+    const chord = chordById(el.chord.value) || CHORDS[0];
+    return { chord, inversion: Math.min(Number(el.inversion.value) || 0, inversionCount(chord)), tuning: el.tuning.value };
+  }
+
+  function renderChordBox() {
+    const { chord, inversion } = chordChoice();
+    const names = ["Root position", "1st", "2nd", "3rd", "4th"];
+    el.inversion.replaceChildren(...Array.from({ length: inversionCount(chord) + 1 }, (_, i) => {
+      const o = node("option", null, names[i] || i + "th");
+      o.value = String(i);
+      return o;
+    }));
+    el.inversion.value = String(inversion);
+    el.inversion.disabled = inversionCount(chord) === 0;
+    const c = chordCycle(chord.id, inversion, el.tuning.value);
+    const up = semitonesAbove(c.rootHarmonic);
+    const octaves = Math.floor(up / 12 + 1e-9);
+    const rest = Math.round(up - 12 * octaves);
+    el.chordNote.textContent = "The root sounds " + octaves + " octave" + (octaves === 1 ? "" : "s") +
+      (rest ? " and " + rest + " semitone" + (rest === 1 ? "" : "s") : "") + " above the note you play." +
+      (c.worstCents >= 1 ? " Some notes are up to " + Math.round(c.worstCents) + " cents off pure tuning." : "");
+  }
+
+  el.chord.addEventListener("change", renderChordBox);
+  el.inversion.addEventListener("change", renderChordBox);
+  el.tuning.addEventListener("change", renderChordBox);
+  el.putChord.addEventListener("click", () => {
+    const k = ui.sel;
+    if (k === 0 && !state.allowFrame0) { lockedMessage(); return; }
+    const { chord, inversion, tuning } = chordChoice();
+    const c = chordCycle(chord.id, inversion, tuning);
+    // Every tone must survive the band limit, or the chord loses its top notes.
+    const op = addWave(k, modeNow(), c.name, c.samples, Math.max(c.topHarmonic, clampHarm(state.defaultHarmonics)));
+    say(el.status, c.name + (op.mode === "insert" ? " inserted at WAVE " : " added to WAVE ") +
+      bank.waveValue(k) + ". Add more waves, or press Done and build.");
+  });
+
   el.loadWav.addEventListener("click", () => { el.wavInput.multiple = false; el.wavInput.click(); });
   el.wavInput.addEventListener("change", () => {
     const files = [...(el.wavInput.files || [])];
     el.wavInput.value = "";
-    if (files.length) importWav(ui.sel, files[0], modeNow());
+    if (!files.length) return;
+    if (isBankFile(files[0])) importBank(ui.sel, files[0]);
+    else importWav(ui.sel, files[0], modeNow());
   });
   wireDrop(el.big, (files) => onWavDrop(ui.sel, files));
 
   // ---- inline questions (never window.confirm) -----------------------------------------------
 
-  function askInline(question, yesLabel, onYes) {
+  /** `other` = { label, onClick }: an optional second answer beside Yes and Cancel. */
+  function askInline(question, yesLabel, onYes, other) {
     const box = node("div", "ask");
     box.append(node("p", null, question));
     const buttons = node("div", "buttons");
     const yes = node("button", "btn btn-primary btn-small", yesLabel);
     yes.type = "button";
     yes.addEventListener("click", () => { el.ask.replaceChildren(); onYes(); });
+    buttons.append(yes);
+    if (other) {
+      const alt = node("button", "btn btn-small", other.label);
+      alt.type = "button";
+      alt.addEventListener("click", () => { el.ask.replaceChildren(); other.onClick(); });
+      buttons.append(alt);
+    }
     const no = node("button", "btn btn-small", "Cancel");
     no.type = "button";
     no.addEventListener("click", () => { el.ask.replaceChildren(); });
-    buttons.append(yes, no);
+    buttons.append(no);
     box.append(buttons);
     el.ask.replaceChildren(box);
     yes.focus();
@@ -502,6 +633,7 @@ export function mount(container, initial, ctx, onChange) {
               : "original wave";
 
     el.loadWav.disabled = locked;
+    el.putChord.disabled = locked;
     for (const r of el.modes.querySelectorAll('input[name="wt-mode"]')) r.disabled = locked || k === 0;
     const mode = modeNow();
     el.consequence.textContent = locked
@@ -618,6 +750,7 @@ export function mount(container, initial, ctx, onChange) {
   el.pics.checked = drawsPictures(state);
   const firstOp = opsOf(state)[0];
   ui.sel = firstOp ? firstOp.frame : 1;
+  renderChordBox();
   render();
 
   view = { container, ui };

@@ -33,6 +33,8 @@ export const MODS = [
       facts: [
         ["Waves", "31 you can change (WAVE 4, 8, 12 ... 124). The values in between morph from one wave to the next."],
         ["Your files", "Single-cycle WAV files of any length, 8 to 32 bit, mono or stereo (left channel is used)."],
+        ["Chords", "Make a wave that holds a whole chord: major, minor, sevenths, ninths and more, in any inversion."],
+        ["Whole banks", "Drop a WaftWave bank (.json) or a ZIP of WAV files to fill many waves at once."],
         ["Done for you", "Resized to one cycle of 256 points, centred, set to full level, lined up to start at zero, and limited in brightness."],
         ["Two ways", "Replace one wave, or insert a wave: the waves above move up one step and the last one drops off."],
         ["On the screen", "The little wave picture in the WAVE cell is redrawn to match your waves. Checked on a real Syntakt."],
@@ -51,6 +53,15 @@ export const MODS = [
          "Checked on a real Syntakt on 22 September 2026: a square, a triangle, a saw and a pulse put at WAVE 4, 8, 12 and 124 were " +
          "drawn as those shapes, the values in between morphed, and untouched values kept their original pictures. If you would rather " +
          "not have it, switch off \"Draw my waves on the Syntakt screen too\" in Settings; then only the waves change, exactly as before."],
+        ["Chord waves",
+         "One wave can only hold whole-number multiples of the note you play, so the chord sounds high: with \"Root on the note " +
+         "you play\" its root is four octaves above your note, and a few notes are up to about 30 cents off pure tuning. " +
+         "\"Pure intervals\" tunes every interval exactly, but the root is then not always an octave of your note; the tool says " +
+         "where it lands. Lower TUNE to bring the chord down. Checked on a real Syntakt on 23 September 2026."],
+        ["WaftWave banks",
+         "WaftWave (wftlrd.uk/waftwave) exports a bank of up to 64 waves as .json, or as a ZIP of WAV files. Both can be dropped " +
+         "on a wave here. When the bank has more waves than fit, you choose: spread them evenly so the whole sweep fits, " +
+         "or take the first ones. Checked on a real Syntakt on 23 September 2026."],
         ["What stays the same",
          "All other machines are untouched, and so is everything else on the screen."],
         ["WAVE 0 is special",
@@ -76,7 +87,6 @@ export const MODS = [
     ],
   },
   {
-    // DRAFT COPY: summary, touches and about are drafts for the author to rewrite (web/COPY-GUIDE.md).
     id: "lfo-dv",
     title: "Deja Vu LFO",
     summary: "Two new LFO shapes, DV-F and DV-T: a loop of random steps you can lock, vary or shuffle with SPH. " +

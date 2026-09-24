@@ -293,6 +293,15 @@ details.settings[open] summary { margin-bottom: 12px; }
 .limiter input[type="range"] { width: 100%; }
 .limiter small { color: var(--ink-dim); display: block; line-height: 1.45; }
 .nav { display: flex; gap: 6px; margin-top: 12px; }
+.chord { margin-top: 12px; font-size: 0.9rem; }
+.chord summary { cursor: pointer; color: var(--ink-dim); }
+.chord label { display: block; margin-top: 8px; }
+.chord select {
+  display: block; width: 100%; margin-top: 3px; padding: 4px 6px; font: inherit;
+  color: var(--ink); background: var(--well); border: 1px solid var(--line); border-radius: 6px;
+}
+.chord small { color: var(--ink-dim); display: block; line-height: 1.45; margin-top: 6px; }
+.chord .btn { margin-top: 10px; }
 
 /* ---- your changes -------------------------------------------------------- */
 

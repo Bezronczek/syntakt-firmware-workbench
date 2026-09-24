@@ -195,6 +195,13 @@ is exactly wave `k`; values in between interpolate linearly.
   Checked on an instrument on 2026-09-22. Switching it off gives exactly the earlier behaviour
   (section 7 only, same file size).
 
+- **Or make a chord wave** (under the load button) queues a chord built by `js/chord-waves.js` as an
+  ordinary operation: same Replace / Insert, same list, same Undo. Its band limit is raised to the
+  chord's top harmonic.
+- A **WaftWave bank (.json)** or a **ZIP of WAVs**, dropped on a wave or loaded with the button, is
+  read by `js/bank-import.js` and placed from that wave up after one question; when it has more waves
+  than fit, the question offers "spread evenly" and "take the first ones".
+
 ### How the pictures are written
 
 `js/wave-picture.js` renders one 17x17, 1-bpp picture (68 bytes) per WAVE value from the 32 key-frame
@@ -270,6 +277,8 @@ web/
   js/bank.js              wave operations list and building section 7; pure, Node-testable
   js/wave-dsp.js          WAV decoding and single-cycle conditioning; pure, Node-testable
   js/wave-picture.js      the 17x17 pictures the screen draws, rendered from cycles; pure
+  js/chord-waves.js       chord waves: tones on whole-number harmonics, low-peak phases; pure
+  js/bank-import.js       WaftWave bank (.json) and ZIP-of-WAVs reading; pure, Node-testable
   js/sychord-picture-map.js  where those pictures live in the decompressed MAIN OS section
   js/lfo-dv.js            the Deja Vu LFO patch (shapes DV-F, DV-T) on the decompressed MAIN OS section; pure
   js/site.js              small DOM helpers, safe to import in Node
