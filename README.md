@@ -68,6 +68,8 @@ Marbles.
 - SPH sets how the loop behaves: at 0 it plays new values all the time, at 64 it repeats, at 127 it
   plays the same values in a new order.
 - MODE sets the length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number.
+- Version 2 (24 September 2026): every LFO has its own loop, the LFOs of MIDI tracks included. If you
+  built an image before that date, build it again.
 - DV-F keeps running on its own; DV-T starts the loop again on every note.
 - The seven original shapes are unchanged.
 
@@ -110,7 +112,8 @@ DV-F or DV-T plays a different shape on the official firmware.
 | Size of the built file | The main program part has to be packed again, so the file comes out a little smaller or larger; the page shows the old and the new size before you download. |
 | What does not change | Every sound, pattern and LFO setting that uses one of the seven original shapes. |
 | Checks before download | The same eight checks as for every tool. The file the page builds is byte for byte the one checked on the instrument. |
-| Confirmed on hardware | 2026-09-23, one unit on OS 1.41, on its screen and by ear: every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks at once. Every change to program code was first run in an emulator before it was flashed. |
+| Confirmed on hardware | 2026-09-23, one unit on OS 1.41, on its screen and by ear: every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks at once. Version 2 (2026-09-24): a locked loop of 8 recorded for 40 s repeated exactly, 9 times over; the published version 2 build on its own flashed and checked by ear on 2026-10-19 (a loop of 8 on a synth track and on a MIDI track at once, neither resetting the other). Every change to program code was first run in an emulator before it was flashed. |
+| Version 2 | 2026-09-24. In version 1 the LFOs of MIDI tracks could share a loop with the LFO of another track, and the two reset each other; now each of the firmware's LFOs has a loop of its own. The loader for projects saved by a very old OS read part of this tool's data; it no longer does. Sound and controls are unchanged. |
 | Your existing sounds | A sound saved with DV-F or DV-T plays a different shape on the official firmware, because that firmware knows only seven. |
 | Future OS versions | OS 1.41 only. Other versions are refused rather than patched blindly. |
 | Combines with | SY CHORD Wave Bank, and any other tool whose byte regions are disjoint from this one's; the site checks this before the build. |

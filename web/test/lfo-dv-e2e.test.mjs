@@ -11,8 +11,8 @@ import { tool as waves } from "../js/tools/sychord-waves.js";
 let fails = 0;
 const ok = (name, cond) => { console.log((cond ? "PASS " : "FAIL ") + name); if (!cond) fails++; };
 const rd = (p) => new Uint8Array(readFileSync(p));
-const CHECKED_SECTION3 = "0d8b7f22a381b7cf5b8f970504fdbff461b974f79cb987c1d706d05b505651b2";   // lfo-dv.test.mjs
-const CHECKED_FILE = "work/current/EXPERIMENT_lfo9_dvs.syx";
+const CHECKED_SECTION3 = "85c2f3c7e81951a41a17970605a38717602c20a811115169fb5b410d957c3b2e";   // lfo-dv.test.mjs
+const CHECKED_FILE = "work/current/EXPERIMENT_dv2.syx";
 
 const stockBytes = rd("work/Syntakt_OS1.41.syx");
 const stock = fw.parseSyx(stockBytes);
@@ -38,7 +38,7 @@ let dvImage;
   ok("the built image verifies, with the DV tool present", v.ok && v.mods.length === 1 && v.mods[0].id === "lfo-dv");
   ok("section 3 = the hardware-checked image", (await fw.sha256hex(fw.getSectionRaw(dvImage, dv.SECTION))) === CHECKED_SECTION3);
   if (existsSync(CHECKED_FILE))
-    ok("the whole file = the file flashed and checked on 23 September 2026", (await fw.sha256hex(built.file)) === (await fw.sha256hex(rd(CHECKED_FILE))));
+    ok("the whole file = the DV v2 image of 24 September 2026", (await fw.sha256hex(built.file)) === (await fw.sha256hex(rd(CHECKED_FILE))));
 }
 
 // on an image that already has DV: nothing to add

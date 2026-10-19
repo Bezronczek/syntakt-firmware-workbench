@@ -40,6 +40,9 @@ export const MODS = [
         ["On the screen", "The little wave picture in the WAVE cell is redrawn to match your waves. Checked on a real Syntakt."],
       ],
       more: [
+        ["Version 2, 24 September 2026",
+         "Every LFO now has its own loop, including the LFOs of MIDI tracks, which in version 1 could share a loop with another track's LFO and reset it. " +
+         "Loading a project saved by a very old OS no longer reads this tool's data. Nothing you hear or set changes."],
         ["Tested on a real Syntakt",
          "A saw and a square wave were built with this tool, flashed onto a Syntakt running OS 1.41 and measured from its audio output. " +
          "Both came out within 1% of the waves that went in, over 40 harmonics. Every WAVE value that was left alone measured exactly as before. " +

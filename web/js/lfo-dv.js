@@ -2,13 +2,19 @@
 // seven built-in shapes: DV-F (runs free) and DV-T (every note restarts the loop).
 //   SPH  = deja vu: 0 new values all the time, 64 the loop repeats, 127 the same values in a new order.
 //   MODE = loop length: 2, 4, 8, 16 or 32 steps; the MODE cell shows that number for a DV shape.
-// Built and checked on a real Syntakt on 23 September 2026.
+// Built and checked on a real Syntakt on 23 September 2026. Version 2 (24 September 2026): every LFO has
+// its own loop (also the LFOs of MIDI tracks and the LFO3 of the LFO3 tool), and the old-project loader never
+// reads the blank run this patch uses.
 //
 // Everything here works on the raw (decompressed) MAIN OS section, section 3. The patch writes our own
 // machine code and data into two runs of the section that are blank in the official file, and changes a
 // few operands and constants in place. It never writes firmware bytes taken from this file into the page:
 // what it needs from the firmware (built-in tables it extends) it copies from the section it is given.
 // DOM free, so the Node tests drive it.
+
+// The LFO3 tool (js/lfo3.js, not published yet) keeps the state blocks of its 13 LFOs here; its test checks
+// that these two numbers still match. Kept as literals so this file has no import that is not on the site.
+const LFO3_A2_FIRST = 0x40338a94, LFO3_COUNT = 13;
 
 export const SECTION = 3;
 export const BASE = 0x40000400;                     // address of byte 0 of the raw section
@@ -26,7 +32,7 @@ const L = {
   SHEET_VEC: 0x1a0, SHEET_OBJS: 0x1b0, GLYPH_DV: 0x300, SET_ARR: 0x3a0,
   SET_OBJS_DVF: 0x440, SET_OBJS_DVT: 0x4b0, MASTER_DVF: 0x520, MASTER_DVT: 0x590, LIVE_DVF: 0x600, LIVE_DVT: 0x670,
   PROB: 0x6e0, SLIDE2: 0x700, MODEHELP: 0x740, LASTWAVE: 0x760, LENSTR: 0x770, LENTAB: 0x780,
-  HOOK1: 0x7a0, HOOK2: 0x7c0, CODE_DVF: 0x920, CODE_DVT: 0xb40, SLOTS: 0xd80,
+  HOOK1: 0x7a0, HOOK2: 0x7c0, CONV: 0x7e0, CODE_DVF: 0x920, CODE_DVT: 0xb40, SLOTS: 0xd80,
 };
 const L2 = { ICONVEC: 0x00, ICONHELP: 0x10, ICONOBJS: 0x30, ICONDATA: 0xc0 };
 
@@ -54,6 +60,14 @@ const COUNT_BYTES = [                               // [address, value]: shape c
 const WAVE_MAX = [0x4022e7f0, 0x4022e9f8];          // longs: the WAVE parameter's maximum, LFO1 and LFO2
 const WIDGET = 0x400f32c0;                          // 22 bytes: four instructions move up 2 bytes, then a call
 const NAME_FORMATTERS = [[0x4006fab2, CAVE + L.NAMES, "lea"], [0x4006fb26, CAVE + L.MODEHELP, "jsr"]];   // 28 bytes each
+// Every LFO the firmware runs has a state block (a2) 0x28 bytes apart: the LFOs of MIDI tracks
+// (evaluator 1, 24) directly followed by the track LFOs (evaluator 2, 26); the LFO3 tool adds 13 more.
+// Each gets its own 40-byte loop slot: 63 slots.
+const LFO_A2_FIRST = 0x444da390, LFO_COUNT = 50, SLOT = 40, SLOT_COUNT = LFO_COUNT + LFO3_COUNT;
+// The old-project (version 1) loader reads a 128 x 128 table whose rows 113..127 are all zero and hold our
+// blank run; its four reads return 0 for those rows without reading them. [lsl+add+load site, index reg]
+const TABLE_READS = [[0x400ad4ce, 1], [0x400ad6c6, 0], [0x400adb06, 7], [0x400adc60, 6]];
+const TABLE_FIRST_BLANK_INDEX = 113 * 128;
 const EVAL_HOOKS = [[0x40118fe2, 8, CAVE + L.HOOK1, 7], [0x40119312, 6, CAVE + L.HOOK2, 1]];   // [site, length, hook, mode register]
 
 /** Byte ranges [start, end) of section 3 this patch may change. Deliberately coarse: every site is covered
@@ -66,6 +80,10 @@ export const REGIONS = [
   [0x400702e0, 0x40070340, "shape pictures, MODE cell"],
   [0x400f3238, 0x400f3482, "WAVE picture"],
   [0x4014f820, 0x4014f840, "shape pictures"],
+  [0x400ad4c0, 0x400ad4e0, "old projects (1)"],
+  [0x400ad6c0, 0x400ad6e0, "old projects (2)"],
+  [0x400adb00, 0x400adb20, "old projects (3)"],
+  [0x400adc58, 0x400adc78, "old projects (4)"],
   [0x40118fe0, 0x40119160, "LFO shapes (1)"],
   [0x401192e8, 0x40119468, "LFO shapes (2)"],
   [0x4022e7e4, 0x4022e818, "WAVE range, LFO 1"],
@@ -76,7 +94,7 @@ export const REGIONS = [
 
 const label = (l) => ({ label: l });
 const br = (op, to) => ({ br: op, to });
-const BEQ = 0x6700, BNE = 0x6600, BCC = 0x6400, BCS = 0x6500, BRA = 0x6000, BLS = 0x6300;
+const BEQ = 0x6700, BNE = 0x6600, BCC = 0x6400, BCS = 0x6500, BRA = 0x6000, BLS = 0x6300, BLT = 0x6d00;
 function assemble(items) {
   const out = [], labels = {}, fixups = [];
   for (const it of items) {
@@ -103,27 +121,29 @@ const xorshift = (seed) => [
 
 /** The shape generator: phase at 4(a7), level in d0 (bipolar), a2 = the LFO's state, a3 = its parameters
  *  (SPH word at 4, MODE byte at 6). 16 steps per LFO cycle; a loop of 2 << MODE random values per LFO,
- *  kept in a 80-byte slot picked from a2. trig: restart the loop when the LFO was retriggered. */
+ *  kept in the LFO's own 40-byte slot {last step + 1, position, 32 values}; an LFO the table does not know
+ *  gets level 0. trig: restart the loop when the LFO was retriggered. */
 export function generatorCode({ slots, seed, trig }) {
   const RANDOM = xorshift(seed);
   const TOPBYTE = [0x22, 0x00, 0xe0, 0x89, 0xe0, 0x89, 0xe0, 0x89];
   return assemble([
     [0x4f, 0xef, 0xff, 0xf4], [0x48, 0xd7, 0x00, 0x1c], [0x20, 0x2f, 0x00, 0x10], [0x72, 0x1c], [0xe2, 0xa8],
-    [0x22, 0x0a], [0xe6, 0x89], [0x02, 0x81, 0x00, 0x00, 0xff, 0xff], [0x24, 0x3c, 0x00, 0x00, 0xcc, 0xcd],
-    [0x4c, 0x02, 0x10, 0x00], [0x74, 0x12], [0xe4, 0xa9], [0x02, 0x81, 0x00, 0x00, 0x00, 0x1f],
-    [0x24, 0x01], [0xed, 0x89], [0xe9, 0x8a], [0xd2, 0x82],
+    [0x22, 0x0a], [0x04, 0x81, ...be32(LFO_A2_FIRST)], [0x0c, 0x81, ...be32(LFO_COUNT * SLOT)], br(BCS, "known"),
+    [0x22, 0x0a], [0x04, 0x81, ...be32(LFO3_A2_FIRST)], [0x0c, 0x81, ...be32(LFO3_COUNT * SLOT)], br(BCC, "unknown"),
+    [0x06, 0x81, ...be32(LFO_COUNT * SLOT)],
+    label("known"),                                   // d1 = 40 * slot index, exactly
+    [0x82, 0xfc, 0x00, SLOT], [0x24, 0x01], [0x48, 0x42], [0x4a, 0x42], br(BNE, "unknown"),
+    [0x02, 0x81, 0x00, 0x00, 0xff, 0xff], [0x24, 0x01], [0xeb, 0x89], [0xe7, 0x8a], [0xd2, 0x82],
     [0x41, 0xf9, ...be32(slots)], [0xd1, 0xc1],
-    [0x22, 0x0a], [0xb2, 0xa8, 0x00, 0x0c], br(BEQ, "owned"), [0x42, 0x90], [0x21, 0x41, 0x00, 0x0c],
-    label("owned"),
     [0x24, 0x00], [0x52, 0x82], [0x26, 0x10], br(BEQ, "fresh"),
     ...(trig ? [[0x4a, 0x2a, 0x00, 0x01], br(BEQ, "notrig"), [0x42, 0xa8, 0x00, 0x04], [0x20, 0x82], br(BRA, "out"), label("notrig")] : []),
     [0xb4, 0x83], br(BEQ, "out"),
     [0x53, 0x83], [0x22, 0x00], [0x92, 0x83], [0x02, 0x81, 0x00, 0x00, 0x00, 0x0f], [0x0c, 0x81, 0x00, 0x00, 0x00, 0x0f],
     br(BEQ, "out"), br(BRA, "step"),
     label("fresh"),
-    [0x43, 0xe8, 0x00, 0x10], [0x76, 0x20],
+    [0x43, 0xe8, 0x00, 0x08], [0x76, 0x20],
     label("fill"), RANDOM, [0x12, 0xc0], [0x53, 0x83], br(BNE, "fill"),
-    [0x42, 0xa8, 0x00, 0x04], [0x42, 0xa8, 0x00, 0x30],
+    [0x42, 0xa8, 0x00, 0x04],
     label("step"),
     [0x20, 0x82], [0x24, 0x28, 0x00, 0x04],
     [0x38, 0x2b, 0x00, 0x04], [0x02, 0x84, 0x00, 0x00, 0xff, 0xff], [0xe0, 0x8c], [0x02, 0x84, 0x00, 0x00, 0x00, 0x7f],
@@ -138,12 +158,14 @@ export function generatorCode({ slots, seed, trig }) {
     br(BRA, "store"),
     label("replace"),
     [0x72, 0x3f], [0x92, 0x84], [0xe5, 0x89], [0x28, 0x01], RANDOM, TOPBYTE, [0xb2, 0x84], br(BCC, "store"),
-    [0xe0, 0x88, 0xe0, 0x88], [0x11, 0x80, 0x28, 0x10],
+    [0xe0, 0x88, 0xe0, 0x88], [0x11, 0x80, 0x28, 0x08],
     label("store"),
     [0x21, 0x42, 0x00, 0x04],
     label("out"),
-    [0x24, 0x28, 0x00, 0x04], [0x10, 0x30, 0x28, 0x10], [0x02, 0x80, 0x00, 0x00, 0x00, 0xff],
-    [0x04, 0x80, 0x00, 0x00, 0x00, 0x80], [0x72, 0x18], [0xe3, 0xa8],
+    [0x24, 0x28, 0x00, 0x04], [0x10, 0x30, 0x28, 0x08], [0x02, 0x80, 0x00, 0x00, 0x00, 0xff],
+    [0x04, 0x80, 0x00, 0x00, 0x00, 0x80], [0x72, 0x18], [0xe3, 0xa8], br(BRA, "exit"),
+    label("unknown"), [0x70, 0x00],
+    label("exit"),
     [0x4c, 0xd7, 0x00, 0x1c], [0x4f, 0xef, 0x00, 0x0c], [0x4e, 0x75],
   ]);
 }
@@ -204,7 +226,8 @@ export function buildSection(raw) {
     "DV-F": generatorCode({ slots: CAVE + L.SLOTS, seed: CAVE + L.PROB + 4, trig: false }),
     "DV-T": generatorCode({ slots: CAVE + L.SLOTS, seed: CAVE + L.PROB + 4, trig: true }),
   };
-  if (L.CODE_DVF + code["DV-F"].length > L.CODE_DVT || L.CODE_DVT + code["DV-T"].length > L.SLOTS) throw new Error("layout");
+  if (L.CODE_DVF + code["DV-F"].length > L.CODE_DVT || L.CODE_DVT + code["DV-T"].length > L.SLOTS ||
+      L.SLOTS + SLOT_COUNT * SLOT > CAVE_LEN) throw new Error("layout");
 
   // shape table, names, the tables the firmware keeps per shape
   put(L.GEN, from(GEN_TABLE, 28));
@@ -215,10 +238,19 @@ export function buildSection(raw) {
     put(L.NAMES + 4 * (7 + i), be32(CAVE + L.STRINGS + 8 * i));
     put(L.STRINGS + 8 * i, [...name].map((c) => c.charCodeAt(0)));
   });
-  put(L.MARK, [..."LFO9 DV-F/DV-T preview 2026-09-23"].map((c) => c.charCodeAt(0)));
+  put(L.MARK, [..."DV v2 2026-09-24"].map((c) => c.charCodeAt(0)));
   put(L.CODE_DVF, code["DV-F"]);
   put(L.CODE_DVT, code["DV-T"]);
   for (const [a, n, hook, reg] of EVAL_HOOKS) put(hook - CAVE, modeHookCode(from(a, n), reg));
+  // old-project loader: lsl + add (copied), then 0 for the blank rows, else the load (copied)
+  const conv = TABLE_READS.map(([a, reg]) => assemble([
+    from(a, 4), [0x0c, 0x80 | reg, ...be32(TABLE_FIRST_BLANK_INDEX)], br(BLT, "load"),
+    [0x70 | (raw[off(a) + 4] & 0x0e), 0x00], [0x4e, 0x75],          // moveq #0 into the load's destination
+    label("load"), from(a + 4, 4), [0x4e, 0x75],
+  ]));
+  let convAt = L.CONV;
+  const convAddr = conv.map((c) => { const at = convAt; put(at, c); convAt += (c.length + 3) & ~3; return CAVE + at; });
+  if (convAt > L.CODE_DVF) throw new Error("layout");
   START_TABLES.forEach((t, k) => put([L.START0, L.START1, L.START2][k], from(t, 28)));
   put(L.FLAGS, [...from(FLAG_TABLE, 7), 1, 1]);
 
@@ -288,6 +320,7 @@ export function buildSection(raw) {
   for (const [a, target, kind] of NAME_FORMATTERS)
     out.set([...(kind === "lea" ? [0x41, 0xf9] : [0x4e, 0xb9]), ...be32(target), 0x41, 0xf0, 0x2c, 0x00, ...Array(9).fill([0x4e, 0x71]).flat()], off(a));
   for (const [a, n, target] of EVAL_HOOKS) out.set([0x4e, 0xb9, ...be32(target), ...(n === 8 ? [0x4e, 0x71] : [])], off(a));
+  TABLE_READS.forEach(([a], i) => out.set([0x4e, 0xb9, ...be32(convAddr[i]), 0x4e, 0x71], off(a)));
   return out;
 }
 
