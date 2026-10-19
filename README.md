@@ -61,22 +61,21 @@ the parts that hold the SY CHORD waves and their pictures.
 - Patterns and sounds that use a WAVE value you changed, or one next to it, will sound different.
   Flash the official file to get everything back.
 
-**Deja Vu LFO** - two new LFO shapes, DV-F and DV-T, after RND on the WAVE knob of every LFO. Each
-is a loop of random steps; the behaviour is inspired by the Deja Vu control of Mutable Instruments
-Marbles.
+**Deja Vu LFO** - a new LFO shape, DV-H, after RND on the WAVE knob of every LFO. It is a loop of
+random levels that moves one step with every note; between notes the level holds. The behaviour is
+inspired by the Deja Vu control of Mutable Instruments Marbles.
 
+- SPD sets the length of the loop: 1 to 32 steps. Negative values play the loop backwards.
 - SPH sets how the loop behaves: at 0 it plays new values all the time, at 64 it repeats, at 127 it
   plays the same values in a new order.
-- MODE sets the length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number.
-- Version 2 (24 September 2026): every LFO has its own loop, the LFOs of MIDI tracks included. If you
-  built an image before that date, build it again.
-- DV-F keeps running on its own; DV-T starts the loop again on every note.
+- MODE and MULT have no function for this shape; the MODE cell shows two dashes.
+- Version 3 (20 October 2026) replaces the two earlier shapes, DV-F and DV-T, which ran on the LFO clock.
+  If you built an image before that, build it again.
 - The seven original shapes are unchanged.
 
-Checked on a Syntakt running OS 1.41 on 23 September 2026, on its screen and by ear: every loop
-length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks. The
-file the page builds is byte for byte the one that was checked. OS 1.41 only; a sound saved with
-DV-F or DV-T plays a different shape on the official firmware.
+Checked on a Syntakt running OS 1.41, on its screen and by ear; the details are in the technical
+notes below. The file the page builds is byte for byte the one that was checked. OS 1.41 only; a
+sound saved with DV-H plays a different shape on the official firmware.
 
 ## Technical notes
 
@@ -102,19 +101,18 @@ DV-F or DV-T plays a different shape on the official firmware.
 
 | | |
 | --- | --- |
-| Shapes | Nine on the WAVE knob of every LFO: the seven original ones, unchanged, then DV-F and DV-T. |
-| How a loop works | Each LFO keeps its own loop of random levels and plays one level per step, 16 steps per LFO cycle. SPH decides what happens at each step: below 64 a step is more and more likely to get a new random level (always at 0); at 64 the loop repeats exactly; above 64 it more and more often jumps to another of its own levels, so the same levels come in a new order (always at 127). |
-| Loop length | For these two shapes MODE sets the length instead of its usual job: FREE, TRIG, HOLD, ONE and HALF give 2, 4, 8, 16 and 32 steps. The MODE cell then shows the number instead of the usual icon. |
-| DV-F and DV-T | DV-F always runs freely, as in FREE mode. DV-T always goes back to the first step of its loop on every note, so the loop plays from the start with each trig. |
-| Speed, depth, destination | SPD and MULT set the speed of the LFO cycle, and so of the steps; DEP and DEST work as for any other shape. |
-| On the screen | The shape names DV-F and DV-T in the WAVE cell, a fixed picture for each, and the loop length in the MODE cell. |
-| Part of the firmware that changes | The main program: our own code and small tables for the two shapes, written into space that is empty in the official file, plus a few small changes in place so that the WAVE knob offers nine shapes and the screen names and draws them. No sound data, no other machine, nothing else on the screen. |
+| Shapes | Eight on the WAVE knob of every LFO: the seven original ones, unchanged, then DV-H. |
+| How the loop works | Each LFO keeps its own loop of random levels. Every note moves the loop one step on and the LFO puts out that step's level until the next note; the LFO cycle and its speed play no part. SPH decides what happens at each step: below 64 a step is more and more likely to get a new random level (always at 0); at 64 the loop repeats exactly; above 64 it more and more often jumps to another of its own levels, so the same levels come in a new order (always at 127). |
+| Loop length | SPD sets the length, 1 to 32 steps (0 counts as 1, values beyond 32 as 32). A negative SPD plays the same loop backwards. |
+| Notes, fade, depth, destination | The shape always behaves as in TRIG mode: a note moves the loop and restarts FADE. DEP and DEST work as for any other shape. MODE and MULT have no function for this shape. |
+| On the screen | The shape name DV-H in the WAVE cell, a fixed picture of held steps, and two dashes in the MODE cell. |
+| Part of the firmware that changes | The main program: our own code and small tables for the shape, written into space that is empty in the official file, plus a few small changes in place so that the WAVE knob offers eight shapes and the screen names and draws it. No sound data, no other machine, nothing else on the screen. |
 | Size of the built file | The main program part has to be packed again, so the file comes out a little smaller or larger; the page shows the old and the new size before you download. |
 | What does not change | Every sound, pattern and LFO setting that uses one of the seven original shapes. |
 | Checks before download | The same eight checks as for every tool. The file the page builds is byte for byte the one checked on the instrument. |
-| Confirmed on hardware | 2026-09-23, one unit on OS 1.41, on its screen and by ear: every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks at once. Version 2 (2026-09-24): a locked loop of 8 recorded for 40 s repeated exactly, 9 times over; the published version 2 build on its own flashed and checked by ear on 2026-10-19 (a loop of 8 on a synth track and on a MIDI track at once, neither resetting the other). Every change to program code was first run in an emulator before it was flashed. |
-| Version 2 | 2026-09-24. In version 1 the LFOs of MIDI tracks could share a loop with the LFO of another track, and the two reset each other; now each of the firmware's LFOs has a loop of its own. The loader for projects saved by a very old OS read part of this tool's data; it no longer does. Sound and controls are unchanged. |
-| Your existing sounds | A sound saved with DV-F or DV-T plays a different shape on the official firmware, because that firmware knows only seven. |
+| Confirmed on hardware | Versions 1 and 2 (2026-09-23 and 2026-09-24), one unit on OS 1.41, on its screen and by ear: every loop length, SPH 0, 64 and 127, both LFOs of a track and several tracks at once; a locked loop of 8 recorded for 40 s repeated exactly, 9 times over. Version 3 (2026-10-20): the build this page makes flashed and checked by ear on a synth track with TUNE as destination: a loop of 4 repeated the same four pitches, SPD -4 played them backwards, SPD 1 held one, SPH 0 gave a new pitch on every note and SPH 127 the same four in a new order; the level held between notes. Every change to program code was first run in an emulator before it was flashed. |
+| Version 3 | 2026-10-20. The two shapes of versions 1 and 2, DV-F (free running) and DV-T (restarted by notes), stepped on the LFO clock; users found a loop that holds a level per note more useful, so one shape, DV-H, replaces both, and the loop length moved from MODE to SPD. The loops of every LFO stay separate (version 2), and the loader for projects saved by a very old OS still never reads this tool's data. A sound saved with DV-F or DV-T now plays DV-H, the last shape on the knob. |
+| Your existing sounds | A sound saved with DV-H plays a different shape on the official firmware, because that firmware knows only seven. |
 | Future OS versions | OS 1.41 only. Other versions are refused rather than patched blindly. |
 | Combines with | SY CHORD Wave Bank, and any other tool whose byte regions are disjoint from this one's; the site checks this before the build. |
 

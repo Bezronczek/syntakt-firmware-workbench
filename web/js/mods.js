@@ -92,24 +92,26 @@ export const MODS = [
   {
     id: "lfo-dv",
     title: "Deja Vu LFO",
-    summary: "Two new LFO shapes, DV-F and DV-T: a loop of random steps you can lock, vary or shuffle with SPH. " +
+    summary: "A new LFO shape, DV-H: a loop of random levels that moves one step with every note, and that you can lock, vary or shuffle with SPH. " +
       "The behaviour is inspired by the Deja Vu control of Mutable Instruments Marbles.",
     status: "available",
-    touches: "Changes the LFO of every track: two shapes are added after RND, and SPH and MODE work differently for them. The seven original shapes are unchanged.",
+    touches: "Changes the LFO of every track: one shape is added after RND, and SPD, SPH, MULT and MODE work differently for it. The seven original shapes are unchanged.",
     about: {
       badge: "Confirmed on hardware",
       facts: [
-        ["Shapes", "DV-F keeps running on its own. DV-T starts the loop again on every note."],
+        ["The shape", "DV-H: every note moves the loop one step on; between notes the level holds. The LFO cycle and its speed play no part."],
         ["Inspired by", "The Deja Vu control of Mutable Instruments Marbles: random values that can repeat, change or be reshuffled."],
+        ["SPD", "Length of the loop, 1 to 32 steps. Negative values play the loop backwards."],
         ["SPH", "0: new values all the time. 64: the loop repeats. 127: the same values in a new order."],
-        ["MODE", "Length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number."],
+        ["MODE and MULT", "No function for this shape; the MODE cell shows two dashes."],
       ],
       more: [
         ["Tested on a real Syntakt",
-         "Built with the same code as this page, flashed onto a Syntakt running OS 1.41 on 23 September 2026 and checked on its screen and by ear: " +
-         "every loop length, SPH 0, 64 and 127, DV-T restarting on notes, both LFOs of a track and several tracks."],
+         "Built with the same code as this page, flashed onto a Syntakt running OS 1.41 on 20 October 2026 and checked on its screen and by ear: a loop of 4 repeating, played backwards with a negative SPD, SPH 0, 64 and 127. The details are in the technical notes of the README."],
+        ["Version 3, October 2026",
+         "The two earlier shapes, DV-F and DV-T, ran on the LFO clock and were replaced on user feedback by one shape, DV-H, that moves on notes. The loop length moved from MODE to SPD. A sound saved with DV-F or DV-T now plays DV-H."],
         ["Your existing sounds",
-         "Sounds that use one of the seven original shapes do not change. A sound saved with DV-F or DV-T plays a different shape on the official firmware."],
+         "Sounds that use one of the seven original shapes do not change. A sound saved with DV-H plays a different shape on the official firmware."],
         ["Only OS 1.41", "Other OS versions are refused."],
         ["Using it with other tools", "It can be combined with any tool that does not change the same bytes. The site checks this before you start."],
       ],

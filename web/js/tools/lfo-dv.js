@@ -1,4 +1,4 @@
-// The Deja Vu LFO tool (shapes DV-F and DV-T), as a workbench plug-in (see js/tools.js for the interface).
+// The Deja Vu LFO tool (the shape DV-H), as a workbench plug-in (see js/tools.js for the interface).
 // State: { add: boolean }. Every byte-level decision lives in ../lfo-dv.js, which the Node tests drive.
 // DRAFT COPY: the user-facing strings below are drafts for the author to rewrite (web/COPY-GUIDE.md).
 
@@ -7,7 +7,7 @@ import * as dv from "../lfo-dv.js";
 import { node } from "../site.js";
 
 const MOD_ID = "lfo-dv";
-const ADD_LINE = "Add two LFO shapes, DV-F and DV-T, after RND.";
+const ADD_LINE = "Add the LFO shape DV-H after RND.";
 
 export function createState() {
   return { add: false };
@@ -23,18 +23,18 @@ export function contribute(state, ctx) {
   if (!summarise(state, ctx).length) return [];
   const raw = fw.getSectionRaw(ctx.baseParsed, dv.SECTION);
   if (dv.isPatched(raw)) return [];
-  return [{ section: dv.SECTION, bytes: dv.buildSection(raw), note: "LFO shapes DV-F and DV-T added" }];
+  return [{ section: dv.SECTION, bytes: dv.buildSection(raw), note: "LFO shape DV-H added" }];
 }
 
 const VIEW = `
-<p class="lead-line">Add two new LFO shapes to your file.</p>
-<p class="hint small">They come after RND on the WAVE knob of every LFO. Their behaviour is inspired by the Deja Vu control of Mutable Instruments Marbles. Nothing is written here: you build your file on the workbench.</p>
+<p class="lead-line">Add a new LFO shape to your file.</p>
+<p class="hint small">It comes after RND on the WAVE knob of every LFO. Its behaviour is inspired by the Deja Vu control of Mutable Instruments Marbles. Nothing is written here: you build your file on the workbench.</p>
 <div class="tool-note" data-x="note" hidden></div>
 <dl class="facts">
-  <dt>DV-F</dt><dd>A loop of random steps that keeps running on its own.</dd>
-  <dt>DV-T</dt><dd>The same loop, started again by every note.</dd>
+  <dt>DV-H</dt><dd>A loop of random levels. Every note moves it one step on; between notes the level holds.</dd>
+  <dt>SPD</dt><dd>Length of the loop, 1 to 32 steps. Negative values play the loop backwards.</dd>
   <dt>SPH</dt><dd>0: new values all the time. 64: the loop repeats. 127: the same values in a new order.</dd>
-  <dt>MODE</dt><dd>Length of the loop: 2, 4, 8, 16 or 32 steps. The MODE cell shows the number.</dd>
+  <dt>MODE</dt><dd>No function for this shape; the cell shows two dashes. MULT has no function either.</dd>
 </dl>
 <p class="go"><button type="button" class="btn btn-primary" data-x="toggle"></button></p>
 <p class="status" data-x="status" aria-live="polite"></p>
@@ -51,13 +51,13 @@ export function mount(container, initial, ctx, onChange) {
 
   if (present(ctx)) {
     el.note.hidden = false;
-    el.note.append(node("p", null, "Your file already has DV-F and DV-T. There is nothing to add."));
+    el.note.append(node("p", null, "Your file already has DV-H. There is nothing to add."));
     el.toggle.hidden = true;
     return;
   }
 
   function render() {
-    el.toggle.textContent = state.add ? "Remove from the build" : "Add DV-F and DV-T";
+    el.toggle.textContent = state.add ? "Remove from the build" : "Add DV-H";
     el.toggle.classList.toggle("btn-primary", !state.add);
     el.status.textContent = state.add ? "Added. Go back to the workbench and build your file." : "";
   }

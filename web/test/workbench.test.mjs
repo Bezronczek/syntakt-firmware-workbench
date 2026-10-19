@@ -16,7 +16,7 @@ const throws = async (fn) => { try { await fn(); return false; } catch { return 
 const stock = load("work/Syntakt_OS1.41.syx");
 const fresh = await wb.computeFingerprints(stock);
 ok("shipped fingerprints match the stock file and the current registry", JSON.stringify(fresh) === JSON.stringify(FINGERPRINTS));
-ok("fingerprints hold digests only (small file, no long byte runs)", JSON.stringify(FINGERPRINTS).length < 1000 + 200 * FINGERPRINTS.registry.split(";").length + FINGERPRINTS.registry.length);").length) + FINGERPRINTS.registry.length);
+ok("fingerprints hold digests only (small file, no long byte runs)", JSON.stringify(FINGERPRINTS).length < 1000 + 200 * FINGERPRINTS.registry.split(";").length + FINGERPRINTS.registry.length);
 
 let v = await wb.verifyImage(stock);
 ok("stock verifies as stock", v.ok && v.isStock && v.mods.length === 0);

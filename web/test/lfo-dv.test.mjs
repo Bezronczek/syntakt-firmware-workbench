@@ -1,5 +1,5 @@
 // DV LFO shapes (js/lfo-dv.js). Needs the (never committed) official firmware in work/; the build it
-// reproduces is DV version 2 (24 September 2026); its bytes are the DV part of the image checked on a real Syntakt
+// reproduces is DV version 3 (October 2026, DV-H); its bytes are the DV part of the image checked on a real Syntakt
 // (compared by SHA-256 only).
 // Run from the project root:  node web/test/lfo-dv.test.mjs
 import { readFileSync, existsSync } from "node:fs";
@@ -9,8 +9,8 @@ import * as dv from "../js/lfo-dv.js";
 let failed = 0;
 const ok = (name, cond) => { console.log((cond ? "PASS " : "FAIL ") + name); if (!cond) failed++; };
 
-// sha256 of the raw section 3 of EXPERIMENT_dv2.syx (DV v2, 2026-09-24; emulator gate + hardware inside the LFO3+DV image)
-const CHECKED_SECTION3 = "85c2f3c7e81951a41a17970605a38717602c20a811115169fb5b410d957c3b2e";
+// sha256 of the raw section 3 of EXPERIMENT_dv3.syx (DV v3 = DV-H, 2026-10-19; emulator gate, then hardware)
+const CHECKED_SECTION3 = "ef8da3a93215ca970c2386c2adad1ac8fc329ef9b0cbefd1bf9082fe1074904b";
 
 const STOCK = "work/Syntakt_OS1.41.syx";
 if (!existsSync(STOCK)) { console.log("SKIP  lfo-dv tests: " + STOCK + " missing"); process.exit(0); }
@@ -35,7 +35,7 @@ ok("the two blank runs are blank in the official file", dv.REGIONS.filter((r) =>
 
 // bit-identical to the image that was checked on the device
 const digest = await fw.sha256hex(built);
-const golden = "work/current/EXPERIMENT_dv2.syx";
+const golden = "work/current/EXPERIMENT_dv3.syx";
 if (existsSync(golden)) {
   const g = await fw.sha256hex(fw.getSectionRaw(fw.parseSyx(new Uint8Array(readFileSync(golden))), dv.SECTION));
   ok("same section 3 as the hardware-checked image (file)", digest === g);

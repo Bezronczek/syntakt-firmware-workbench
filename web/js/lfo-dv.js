@@ -1,10 +1,11 @@
-// Deja Vu LFO: two random loopers, inspired by the Deja Vu control of Mutable Instruments Marbles, added to the LFO WAVE list of Syntakt OS 1.41, after the
-// seven built-in shapes: DV-F (runs free) and DV-T (every note restarts the loop).
+// Deja Vu LFO: a random looper on trigs, inspired by the Deja Vu control of Mutable Instruments Marbles, added to the LFO WAVE list of
+// Syntakt OS 1.41 after the seven built-in shapes as DV-H: every note moves the loop one step on; between notes the value holds.
+//   SPD  = loop length, 1 to 32 steps (the sign is the direction: negative runs the loop backwards).
 //   SPH  = deja vu: 0 new values all the time, 64 the loop repeats, 127 the same values in a new order.
-//   MODE = loop length: 2, 4, 8, 16 or 32 steps; the MODE cell shows that number for a DV shape.
-// Built and checked on a real Syntakt on 23 September 2026. Version 2 (24 September 2026): every LFO has
-// its own loop (also the LFOs of MIDI tracks and the LFO3 of the LFO3 tool), and the old-project loader never
-// reads the blank run this patch uses.
+//   MODE = no function for this shape (the cell shows "--"); MULT none either. FADE restarts on every note.
+// Versions 1 and 2 (23 and 24 September 2026) had two free-running shapes, DV-F and DV-T, replaced by DV-H in
+// version 3 (October 2026) on user feedback. Every LFO has its own loop (also the LFOs of MIDI tracks and the
+// LFO3 of the LFO3 tool), and the old-project loader never reads the blank run this patch uses.
 //
 // Everything here works on the raw (decompressed) MAIN OS section, section 3. The patch writes our own
 // machine code and data into two runs of the section that are blank in the official file, and changes a
@@ -21,8 +22,8 @@ export const BASE = 0x40000400;                     // address of byte 0 of the 
 const off = (va) => va - BASE;
 const be32 = (v) => [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255];
 
-export const DVF = 7, DVT = 8, N = 9, LAST = N - 1;   // WAVE values of the new shapes, shape count
-export const NAMES = ["DV-F", "DV-T"];
+export const DV = 7, N = 8, LAST = N - 1;           // WAVE value of the new shape, shape count
+export const NAMES = ["DV-H"];
 
 const CAVE = 0x402ba000, CAVE_LEN = 0x1780;         // blank in the official file
 const CAVE2 = 0x402b9b00, CAVE2_LEN = 0x500;        // blank in the official file
@@ -30,9 +31,9 @@ const L = {
   GEN: 0x000, NAMES: 0x040, STRINGS: 0x080, MARK: 0x0a0,
   START0: 0x0c0, START1: 0x100, START2: 0x140, FLAGS: 0x180,
   SHEET_VEC: 0x1a0, SHEET_OBJS: 0x1b0, GLYPH_DV: 0x300, SET_ARR: 0x3a0,
-  SET_OBJS_DVF: 0x440, SET_OBJS_DVT: 0x4b0, MASTER_DVF: 0x520, MASTER_DVT: 0x590, LIVE_DVF: 0x600, LIVE_DVT: 0x670,
+  SET_OBJS: 0x440, MASTER: 0x520, LIVE: 0x600,
   PROB: 0x6e0, SLIDE2: 0x700, MODEHELP: 0x740, LASTWAVE: 0x760, LENSTR: 0x770, LENTAB: 0x780,
-  HOOK1: 0x7a0, HOOK2: 0x7c0, CONV: 0x7e0, CODE_DVF: 0x920, CODE_DVT: 0xb40, SLOTS: 0xd80,
+  HOOK1: 0x7a0, HOOK2: 0x7c0, CONV: 0x7e0, CODE: 0x920, SLOTS: 0xd80,
 };
 const L2 = { ICONVEC: 0x00, ICONHELP: 0x10, ICONOBJS: 0x30, ICONDATA: 0xc0 };
 
@@ -94,7 +95,7 @@ export const REGIONS = [
 
 const label = (l) => ({ label: l });
 const br = (op, to) => ({ br: op, to });
-const BEQ = 0x6700, BNE = 0x6600, BCC = 0x6400, BCS = 0x6500, BRA = 0x6000, BLS = 0x6300, BLT = 0x6d00;
+const BEQ = 0x6700, BNE = 0x6600, BCC = 0x6400, BCS = 0x6500, BRA = 0x6000, BLS = 0x6300, BLT = 0x6d00, BPL = 0x6a00, BMI = 0x6b00;
 function assemble(items) {
   const out = [], labels = {}, fixups = [];
   for (const it of items) {
@@ -119,39 +120,41 @@ const xorshift = (seed) => [
   0x23, 0xc0, ...be32(seed),
 ];
 
-/** The shape generator: phase at 4(a7), level in d0 (bipolar), a2 = the LFO's state, a3 = its parameters
- *  (SPH word at 4, MODE byte at 6). 16 steps per LFO cycle; a loop of 2 << MODE random values per LFO,
- *  kept in the LFO's own 40-byte slot {last step + 1, position, 32 values}; an LFO the table does not know
- *  gets level 0. trig: restart the loop when the LFO was retriggered. */
-export function generatorCode({ slots, seed, trig }) {
+/** The shape generator: level in d0 (bipolar), a2 = the LFO's state, a3 = its parameters (SPD word at -6,
+ *  0x4000 = 0; SPH word at 4). The phase the evaluator passes is ignored: the loop moves one step when the
+ *  evaluator's own retrigger flag 1(a2) is set (the call of a note; the mode hook puts the shape in TRIG), and
+ *  holds otherwise. Loop of |SPD| values, 1..32, backwards for negative SPD, kept in the LFO's own 40-byte
+ *  slot {1 once filled, position, 32 values}; an LFO the table does not know gets level 0. */
+export function generatorCode({ slots, seed }) {
   const RANDOM = xorshift(seed);
   const TOPBYTE = [0x22, 0x00, 0xe0, 0x89, 0xe0, 0x89, 0xe0, 0x89];
   return assemble([
-    [0x4f, 0xef, 0xff, 0xf4], [0x48, 0xd7, 0x00, 0x1c], [0x20, 0x2f, 0x00, 0x10], [0x72, 0x1c], [0xe2, 0xa8],
+    [0x4f, 0xef, 0xff, 0xf4], [0x48, 0xd7, 0x00, 0x1c],
     [0x22, 0x0a], [0x04, 0x81, ...be32(LFO_A2_FIRST)], [0x0c, 0x81, ...be32(LFO_COUNT * SLOT)], br(BCS, "known"),
     [0x22, 0x0a], [0x04, 0x81, ...be32(LFO3_A2_FIRST)], [0x0c, 0x81, ...be32(LFO3_COUNT * SLOT)], br(BCC, "unknown"),
     [0x06, 0x81, ...be32(LFO_COUNT * SLOT)],
     label("known"),                                   // d1 = 40 * slot index, exactly
     [0x82, 0xfc, 0x00, SLOT], [0x24, 0x01], [0x48, 0x42], [0x4a, 0x42], br(BNE, "unknown"),
     [0x02, 0x81, 0x00, 0x00, 0xff, 0xff], [0x24, 0x01], [0xeb, 0x89], [0xe7, 0x8a], [0xd2, 0x82],
-    [0x41, 0xf9, ...be32(slots)], [0xd1, 0xc1],
-    [0x24, 0x00], [0x52, 0x82], [0x26, 0x10], br(BEQ, "fresh"),
-    ...(trig ? [[0x4a, 0x2a, 0x00, 0x01], br(BEQ, "notrig"), [0x42, 0xa8, 0x00, 0x04], [0x20, 0x82], br(BRA, "out"), label("notrig")] : []),
-    [0xb4, 0x83], br(BEQ, "out"),
-    [0x53, 0x83], [0x22, 0x00], [0x92, 0x83], [0x02, 0x81, 0x00, 0x00, 0x00, 0x0f], [0x0c, 0x81, 0x00, 0x00, 0x00, 0x0f],
-    br(BEQ, "out"), br(BRA, "step"),
-    label("fresh"),
-    [0x43, 0xe8, 0x00, 0x08], [0x76, 0x20],
-    label("fill"), RANDOM, [0x12, 0xc0], [0x53, 0x83], br(BNE, "fill"),
-    [0x42, 0xa8, 0x00, 0x04],
-    label("step"),
-    [0x20, 0x82], [0x24, 0x28, 0x00, 0x04],
-    [0x38, 0x2b, 0x00, 0x04], [0x02, 0x84, 0x00, 0x00, 0xff, 0xff], [0xe0, 0x8c], [0x02, 0x84, 0x00, 0x00, 0x00, 0x7f],
-    [0x76, 0x00], [0x16, 0x2b, 0x00, 0x06], [0x0c, 0x83, 0x00, 0x00, 0x00, 0x04], br(BLS, "lenok"), [0x76, 0x04],
-    label("lenok"),
-    [0x72, 0x02], [0xe7, 0xa9], [0x26, 0x01],
-    [0x52, 0x82], [0xb4, 0x83], br(BCS, "nowrap"), [0x42, 0x82],
-    label("nowrap"),
+    [0x41, 0xf9, ...be32(slots)], [0xd1, 0xc1],       // a0 = the slot
+    [0x4a, 0x90], br(BEQ, "fresh"),
+    label("armed"),
+    [0x4a, 0x2a, 0x00, 0x01], br(BEQ, "out"),         // no note in this call: hold
+    [0x24, 0x28, 0x00, 0x04],                         // d2 = position
+    [0x38, 0x2b, 0x00, 0x04], [0x02, 0x84, 0x00, 0x00, 0xff, 0xff], [0xe0, 0x8c], [0x02, 0x84, 0x00, 0x00, 0x00, 0x7f],   // d4 = SPH
+    [0x36, 0x2b, 0xff, 0xfa], [0x48, 0xc3], [0x04, 0x83, 0x00, 0x00, 0x40, 0x00], [0xe0, 0x83],   // d3 = SPD, -64..63
+    [0x22, 0x03], [0x4a, 0x83], br(BPL, "abs"), [0x44, 0x83],
+    label("abs"),                                     // d1 = SPD with its sign, d3 = |SPD|
+    [0x4a, 0x83], br(BNE, "nonzero"), [0x76, 0x01],
+    label("nonzero"),
+    [0x0c, 0x83, 0x00, 0x00, 0x00, 0x20], br(BLS, "lenok"), [0x76, 0x20],
+    label("lenok"),                                   // d3 = loop length 1..32
+    [0x4a, 0x81], br(BMI, "back"),
+    [0x52, 0x82], [0xb4, 0x83], br(BCS, "moved"), [0x42, 0x82], br(BRA, "moved"),
+    label("back"),
+    [0x4a, 0x82], br(BNE, "down"), [0x24, 0x03],
+    label("down"), [0x53, 0x82],
+    label("moved"),                                   // d2 = the new position
     [0x0c, 0x84, 0x00, 0x00, 0x00, 0x40], br(BCS, "replace"),
     [0x04, 0x84, 0x00, 0x00, 0x00, 0x40], [0xe5, 0x8c], RANDOM, TOPBYTE, [0xb2, 0x84], br(BCC, "store"),
     [0xe0, 0x88, 0xe0, 0x88], [0x02, 0x80, 0x00, 0x00, 0x00, 0xff], [0x4c, 0x03, 0x00, 0x00], [0xe0, 0x88], [0x24, 0x00],
@@ -160,7 +163,11 @@ export function generatorCode({ slots, seed, trig }) {
     [0x72, 0x3f], [0x92, 0x84], [0xe5, 0x89], [0x28, 0x01], RANDOM, TOPBYTE, [0xb2, 0x84], br(BCC, "store"),
     [0xe0, 0x88, 0xe0, 0x88], [0x11, 0x80, 0x28, 0x08],
     label("store"),
-    [0x21, 0x42, 0x00, 0x04],
+    [0x21, 0x42, 0x00, 0x04], br(BRA, "out"),
+    label("fresh"),
+    [0x43, 0xe8, 0x00, 0x08], [0x76, 0x20],
+    label("fill"), RANDOM, [0x12, 0xc0], [0x53, 0x83], br(BNE, "fill"),
+    [0x42, 0xa8, 0x00, 0x04], [0x70, 0x01], [0x20, 0x80], br(BRA, "armed"),
     label("out"),
     [0x24, 0x28, 0x00, 0x04], [0x10, 0x30, 0x28, 0x08], [0x02, 0x80, 0x00, 0x00, 0x00, 0xff],
     [0x04, 0x80, 0x00, 0x00, 0x00, 0x80], [0x72, 0x18], [0xe3, 0xa8], br(BRA, "exit"),
@@ -171,12 +178,11 @@ export function generatorCode({ slots, seed, trig }) {
 }
 
 /** Runs where the LFO's mode is read: first the instructions it replaces (`head`, copied from the section
- *  being patched), then FREE for DV-F and TRIG for DV-T in the register that holds the mode. */
+ *  being patched), then TRIG for DV-H in the register that holds the mode (so every note sets the
+ *  retrigger flag the generator moves on). */
 function modeHookCode(head, reg) {
   const moveq = (v) => [0x70 | (reg << 1), v];
-  return [...head,
-    0x0c, 0x83, 0x00, 0x00, 0x00, DVF, 0x66, 0x04, ...moveq(0), 0x4e, 0x75,
-    0x0c, 0x83, 0x00, 0x00, 0x00, DVT, 0x66, 0x02, ...moveq(1), 0x4e, 0x75];
+  return [...head, 0x0c, 0x83, 0x00, 0x00, 0x00, DV, 0x66, 0x02, ...moveq(1), 0x4e, 0x75];
 }
 
 // ---- pictures ------------------------------------------------------------------------
@@ -197,7 +203,7 @@ function stepTile(levels, widths, wrap) {         // 28 x 15, one long per colum
   }
   return words;
 }
-const LEVELS = [3, 11, 6, 13, 1, 9, 4, 12], WIDTHS = [4, 3, 4, 3, 4, 3, 4, 3];
+const LEVELS = [3, 11, 6, 13], WIDTHS = [7, 7, 7, 7];   // four held steps
 const DV_GLYPH = [
   "..###############..", ".#...............#.", ".#...............#.", ".#...............#.", ".#...............#.",
   ".#.....##........#.", ".#.....##..##....#.", ".#.##..##..##....#.", ".#.##..##..##.##.#.", ".#.##..##..##.##.#.",
@@ -211,8 +217,9 @@ const DIGITS = {
   4: ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
   6: [".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."],
   8: [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "-": [".....", ".....", ".....", "#####", ".....", ".....", "....."],
 };
-export const LENGTHS = ["2", "4", "8", "16", "32"];
+export const MODE_TEXTS = ["--", "--", "--", "--", "--"];   // the MODE cell for DV-H: no function (kept for a scale, one day)
 
 // ---- the patch -------------------------------------------------------------------------
 
@@ -222,25 +229,19 @@ export function buildSection(raw) {
   const cave = new Uint8Array(CAVE_LEN), cave2 = new Uint8Array(CAVE2_LEN);
   const put = (o, bytes) => cave.set(bytes, o), put2 = (o, bytes) => cave2.set(bytes, o);
   const from = (va, n) => raw.subarray(off(va), off(va) + n);
-  const code = {
-    "DV-F": generatorCode({ slots: CAVE + L.SLOTS, seed: CAVE + L.PROB + 4, trig: false }),
-    "DV-T": generatorCode({ slots: CAVE + L.SLOTS, seed: CAVE + L.PROB + 4, trig: true }),
-  };
-  if (L.CODE_DVF + code["DV-F"].length > L.CODE_DVT || L.CODE_DVT + code["DV-T"].length > L.SLOTS ||
-      L.SLOTS + SLOT_COUNT * SLOT > CAVE_LEN) throw new Error("layout");
+  const code = generatorCode({ slots: CAVE + L.SLOTS, seed: CAVE + L.PROB + 4 });
+  if (L.CODE + code.length > L.SLOTS || L.SLOTS + SLOT_COUNT * SLOT > CAVE_LEN) throw new Error("layout");
 
   // shape table, names, the tables the firmware keeps per shape
   put(L.GEN, from(GEN_TABLE, 28));
-  put(L.GEN + 4 * DVF, be32(CAVE + L.CODE_DVF));
-  put(L.GEN + 4 * DVT, be32(CAVE + L.CODE_DVT));
+  put(L.GEN + 4 * DV, be32(CAVE + L.CODE));
   put(L.NAMES, from(NAME_TABLE, 28));
   NAMES.forEach((name, i) => {
     put(L.NAMES + 4 * (7 + i), be32(CAVE + L.STRINGS + 8 * i));
     put(L.STRINGS + 8 * i, [...name].map((c) => c.charCodeAt(0)));
   });
-  put(L.MARK, [..."DV v2 2026-09-24"].map((c) => c.charCodeAt(0)));
-  put(L.CODE_DVF, code["DV-F"]);
-  put(L.CODE_DVT, code["DV-T"]);
+  put(L.MARK, [..."DV v3 2026-10-19"].map((c) => c.charCodeAt(0)));
+  put(L.CODE, code);
   for (const [a, n, hook, reg] of EVAL_HOOKS) put(hook - CAVE, modeHookCode(from(a, n), reg));
   // old-project loader: lsl + add (copied), then 0 for the blank rows, else the load (copied)
   const conv = TABLE_READS.map(([a, reg]) => assemble([
@@ -250,9 +251,9 @@ export function buildSection(raw) {
   ]));
   let convAt = L.CONV;
   const convAddr = conv.map((c) => { const at = convAt; put(at, c); convAt += (c.length + 3) & ~3; return CAVE + at; });
-  if (convAt > L.CODE_DVF) throw new Error("layout");
+  if (convAt > L.CODE) throw new Error("layout");
   START_TABLES.forEach((t, k) => put([L.START0, L.START1, L.START2][k], from(t, 28)));
-  put(L.FLAGS, [...from(FLAG_TABLE, 7), 1, 1]);
+  put(L.FLAGS, [...from(FLAG_TABLE, 7), ...NAMES.map(() => 1)]);
 
   // the 19x17 shape pictures of the other LFO view
   put(L.SHEET_VEC, [...be32(CAVE + L.SHEET_OBJS), ...be32(CAVE + L.SHEET_OBJS + N * 0x1c), ...be32(CAVE + L.SHEET_OBJS + N * 0x1c)]);
@@ -267,9 +268,8 @@ export function buildSection(raw) {
   }
 
   // the WAVE cell pictures
-  const sets = { "DV-F": [L.SET_OBJS_DVF, L.LIVE_DVF, L.MASTER_DVF, "closed"], "DV-T": [L.SET_OBJS_DVT, L.LIVE_DVT, L.MASTER_DVT, true] };
   NAMES.forEach((name, i) => {
-    const [objs, live, master, wrap] = sets[name];
+    const [objs, live, master, wrap] = [L.SET_OBJS, L.LIVE, L.MASTER, false];
     put(L.SET_ARR + 12 * (7 + i), [...be32(CAVE + objs), ...be32(CAVE + objs + 4 * 0x1c), ...be32(CAVE + objs + 4 * 0x1c)]);
     for (let v = 0; v < 4; v++)
       put(objs + v * 0x1c, [...be32(BITMAP_VPTR), ...be32(28), ...be32(15), ...be32(1), ...be32(CAVE + live), ...be32(TILE_MASK), ...be32(TILE_EXTRA)]);
@@ -280,16 +280,16 @@ export function buildSection(raw) {
     0x0c, 0x85, 0x00, 0x00, 0x00, 0x06, 0x6d, 0x06, 0x2e, 0xbc, ...be32(NO_SLIDE_RETURN), 0x4e, 0x75,
   ]);
 
-  // MODE cell: names and pictures of the loop lengths for a DV shape
-  LENGTHS.forEach((t, i) => {
+  // MODE cell: what it shows for the DV shape ("--": no function)
+  MODE_TEXTS.forEach((t, i) => {
     put(L.LENSTR + 3 * i, [...t].map((c) => c.charCodeAt(0)));
     put(L.LENTAB + 4 * i, be32(CAVE + L.LENSTR + 3 * i));
   });
   put(L.MODEHELP, [
     0x41, 0xf9, ...be32(MODE_NAMES), 0x20, 0x39, ...be32(CAVE + L.LASTWAVE), 0x5f, 0x80,
-    0x0c, 0x80, 0x00, 0x00, 0x00, 0x01, 0x62, 0x06, 0x41, 0xf9, ...be32(CAVE + L.LENTAB), 0x4e, 0x75,
+    0x0c, 0x80, 0x00, 0x00, 0x00, NAMES.length - 1, 0x62, 0x06, 0x41, 0xf9, ...be32(CAVE + L.LENTAB), 0x4e, 0x75,
   ]);
-  LENGTHS.forEach((txt, k) => {
+  MODE_TEXTS.forEach((txt, k) => {
     const g = Array.from({ length: 17 }, () => Array(19).fill("."));
     for (let x = 2; x <= 16; x++) { g[0][x] = "#"; g[16][x] = "#"; }
     for (let y = 1; y <= 15; y++) { g[y][1] = "#"; g[y][17] = "#"; }
@@ -305,7 +305,7 @@ export function buildSection(raw) {
   });
   put2(L2.ICONVEC, [...be32(CAVE2 + L2.ICONOBJS), ...be32(CAVE2 + L2.ICONOBJS + 5 * 0x1c), ...be32(CAVE2 + L2.ICONOBJS + 5 * 0x1c)]);
   put2(L2.ICONHELP, [
-    0x22, 0x39, ...be32(CAVE + L.LASTWAVE), 0x5f, 0x81, 0x0c, 0x81, 0x00, 0x00, 0x00, 0x01, 0x62, 0x0a,
+    0x22, 0x39, ...be32(CAVE + L.LASTWAVE), 0x5f, 0x81, 0x0c, 0x81, 0x00, 0x00, 0x00, NAMES.length - 1, 0x62, 0x0a,
     0x22, 0x3c, ...be32(CAVE2 + L2.ICONVEC), 0x2f, 0x41, 0x00, 0x04, 0x4e, 0xf9, ...be32(SHEET_GET),
   ]);
 
@@ -327,5 +327,5 @@ export function buildSection(raw) {
 /** True when the section already carries this patch (its shape names are in place). */
 export function isPatched(raw) {
   const o = off(CAVE + L.STRINGS);
-  return String.fromCharCode(...raw.subarray(o, o + 4)) === "DV-F";
+  return String.fromCharCode(...raw.subarray(o, o + 4)) === "DV-H";
 }
